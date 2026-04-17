@@ -23,6 +23,7 @@ object ProjectScanner {
         val files = ArrayList<FileStat>(4096)
         var totalLines = 0L
         var nonBlank = 0L
+        var codeL = 0L
         var size = 0L
 
         val rootManager = ProjectRootManager.getInstance(project)
@@ -60,6 +61,7 @@ object ProjectScanner {
                     files += stat
                     totalLines += stat.totalLines
                     nonBlank += stat.nonBlankLines
+                    codeL += stat.codeLines
                     size += stat.sizeBytes
                     return true
                 }
@@ -70,6 +72,7 @@ object ProjectScanner {
             files = files,
             totalLines = totalLines,
             nonBlankLines = nonBlank,
+            codeLines = codeL,
             sizeBytes = size,
             fileCount = files.size.toLong(),
             scannedMillis = System.currentTimeMillis() - started,
@@ -99,6 +102,7 @@ object ProjectScanner {
                 category = categorize(file, fileIndex),
                 totalLines = 0,
                 nonBlankLines = 0,
+                codeLines = 0,
                 sizeBytes = size,
             )
         }
@@ -107,28 +111,40 @@ object ProjectScanner {
         val isBinary = fileType.isBinary
         var total = 0
         var nonBlank = 0
+        var codeL = 0
         if (!isBinary) {
             try {
                 val bytes = file.contentsToByteArray(false)
-                // Use file's detected charset, falling back to UTF-8
                 val charset = file.charset
                 val text = String(bytes, charset)
+                val ext = file.extension?.lowercase() ?: ""
+                val style = COMMENT_STYLES[ext]
+                var inBlock = false
                 var lineStart = 0
                 var i = 0
                 while (i <= text.length) {
                     if (i == text.length || text[i] == '\n') {
                         total++
-                        var blank = true
-                        for (j in lineStart until i) {
+                        val lineEnd = if (i > lineStart && text[i - 1] == '\r') i - 1 else i
+                        var hasContent = false
+                        for (j in lineStart until lineEnd) {
                             val c = text[j]
-                            if (c != ' ' && c != '\t' && c != '\r') { blank = false; break }
+                            if (c != ' ' && c != '\t') { hasContent = true; break }
                         }
-                        if (!blank) nonBlank++
+                        if (hasContent) {
+                            nonBlank++
+                            if (style == null) {
+                                codeL++
+                            } else {
+                                val (hasCode, newInBlock) = classifyLine(text, lineStart, lineEnd, inBlock, style)
+                                inBlock = newInBlock
+                                if (hasCode) codeL++
+                            }
+                        }
                         lineStart = i + 1
                     }
                     i++
                 }
-                // Trailing newline shouldn't count as an extra empty line
                 if (text.isNotEmpty() && text.last() == '\n') total = (total - 1).coerceAtLeast(0)
             } catch (_: Throwable) {
                 // ignore unreadable files; keep size only
@@ -143,6 +159,7 @@ object ProjectScanner {
             category = categorize(file, fileIndex),
             totalLines = total,
             nonBlankLines = nonBlank,
+            codeLines = codeL,
             sizeBytes = size,
         )
     }
@@ -190,5 +207,113 @@ object ProjectScanner {
             }
             else -> SourceCategory.SOURCE
         }
+    }
+
+    // ---- Comment detection ----
+
+    private data class CommentStyle(
+        val line: String? = null,
+        val blockOpen: String? = null,
+        val blockClose: String? = null,
+    )
+
+    private val COMMENT_STYLES = mapOf(
+        // JVM / Kotlin / Groovy / Scala
+        "java"   to CommentStyle("//", "/*", "*/"),
+        "kt"     to CommentStyle("//", "/*", "*/"),
+        "kts"    to CommentStyle("//", "/*", "*/"),
+        "groovy" to CommentStyle("//", "/*", "*/"),
+        "gradle" to CommentStyle("//", "/*", "*/"),
+        "scala"  to CommentStyle("//", "/*", "*/"),
+        "clj"    to CommentStyle(";"),
+        // C / C++ / Objective-C
+        "c"   to CommentStyle("//", "/*", "*/"),
+        "h"   to CommentStyle("//", "/*", "*/"),
+        "cpp" to CommentStyle("//", "/*", "*/"),
+        "cc"  to CommentStyle("//", "/*", "*/"),
+        "cxx" to CommentStyle("//", "/*", "*/"),
+        "hpp" to CommentStyle("//", "/*", "*/"),
+        "m"   to CommentStyle("//", "/*", "*/"),
+        // Web / scripting
+        "js"   to CommentStyle("//", "/*", "*/"),
+        "jsx"  to CommentStyle("//", "/*", "*/"),
+        "ts"   to CommentStyle("//", "/*", "*/"),
+        "tsx"  to CommentStyle("//", "/*", "*/"),
+        "mjs"  to CommentStyle("//", "/*", "*/"),
+        "css"  to CommentStyle(null, "/*", "*/"),
+        "scss" to CommentStyle("//", "/*", "*/"),
+        "less" to CommentStyle("//", "/*", "*/"),
+        // Systems languages
+        "go"    to CommentStyle("//", "/*", "*/"),
+        "rs"    to CommentStyle("//", "/*", "*/"),
+        "swift" to CommentStyle("//", "/*", "*/"),
+        "cs"    to CommentStyle("//", "/*", "*/"),
+        "dart"  to CommentStyle("//", "/*", "*/"),
+        "php"   to CommentStyle("//", "/*", "*/"),
+        // Scripting / data
+        "py"   to CommentStyle("#"),
+        "rb"   to CommentStyle("#"),
+        "sh"   to CommentStyle("#"),
+        "bash" to CommentStyle("#"),
+        "zsh"  to CommentStyle("#"),
+        "fish" to CommentStyle("#"),
+        "yaml" to CommentStyle("#"),
+        "yml"  to CommentStyle("#"),
+        "toml" to CommentStyle("#"),
+        "r"    to CommentStyle("#"),
+        "pl"   to CommentStyle("#"),
+        "pm"   to CommentStyle("#"),
+        "tf"   to CommentStyle("#", "/*", "*/"),
+        // SQL / functional
+        "sql" to CommentStyle("--", "/*", "*/"),
+        "hs"  to CommentStyle("--", "{-", "-}"),
+        "lua" to CommentStyle("--", "--[[", "]]"),
+        // Markup
+        "html"  to CommentStyle(null, "<!--", "-->"),
+        "htm"   to CommentStyle(null, "<!--", "-->"),
+        "xml"   to CommentStyle(null, "<!--", "-->"),
+        "xhtml" to CommentStyle(null, "<!--", "-->"),
+        "svg"   to CommentStyle(null, "<!--", "-->"),
+    )
+
+    /**
+     * Scans one line of [text] from [lineStart] to [lineEnd] (exclusive) respecting comment syntax.
+     * Returns whether the line contains any non-comment, non-whitespace code character
+     * and the updated block-comment state after the line.
+     */
+    private fun classifyLine(
+        text: String,
+        lineStart: Int,
+        lineEnd: Int,
+        inBlockIn: Boolean,
+        style: CommentStyle,
+    ): Pair<Boolean, Boolean> {
+        var hasCode = false
+        var inBlock = inBlockIn
+        var j = lineStart
+        while (j < lineEnd) {
+            if (inBlock) {
+                val bc = style.blockClose
+                if (bc != null && text.startsWith(bc, j)) {
+                    inBlock = false
+                    j += bc.length
+                } else {
+                    j++
+                }
+            } else {
+                val bo = style.blockOpen
+                val lc = style.line
+                when {
+                    bo != null && text.startsWith(bo, j) -> { inBlock = true; j += bo.length }
+                    lc != null && text.startsWith(lc, j) -> break // rest of line is comment
+                    else -> {
+                        val c = text[j]
+                        if (c != ' ' && c != '\t') hasCode = true
+                        j++
+                    }
+                }
+            }
+        }
+        return Pair(hasCode, inBlock)
     }
 }

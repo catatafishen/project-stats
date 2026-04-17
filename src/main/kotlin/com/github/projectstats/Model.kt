@@ -23,6 +23,7 @@ data class FileStat(
     val category: SourceCategory,
     val totalLines: Int,
     val nonBlankLines: Int,
+    val codeLines: Int,
     val sizeBytes: Long,
     val fileCount: Int = 1,
 )
@@ -34,6 +35,7 @@ data class StatGroup(
     val key: String,
     val totalLines: Long,
     val nonBlankLines: Long,
+    val codeLines: Long,
     val sizeBytes: Long,
     val fileCount: Long,
     val children: List<StatGroup> = emptyList(),
@@ -41,6 +43,7 @@ data class StatGroup(
     fun value(metric: Metric): Long = when (metric) {
         Metric.LOC -> totalLines
         Metric.NON_BLANK_LOC -> nonBlankLines
+        Metric.CODE_LOC -> codeLines
         Metric.SIZE -> sizeBytes
         Metric.FILE_COUNT -> fileCount
     }
@@ -49,6 +52,7 @@ data class StatGroup(
 enum class Metric(val display: String) {
     LOC("Total LOC"),
     NON_BLANK_LOC("Non-blank LOC"),
+    CODE_LOC("Code LOC"),
     SIZE("File size"),
     FILE_COUNT("File count");
     override fun toString() = display
@@ -69,6 +73,7 @@ data class ScanResult(
     val files: List<FileStat>,
     val totalLines: Long,
     val nonBlankLines: Long,
+    val codeLines: Long,
     val sizeBytes: Long,
     val fileCount: Long,
     val scannedMillis: Long,

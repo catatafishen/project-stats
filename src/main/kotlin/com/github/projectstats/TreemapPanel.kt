@@ -239,6 +239,6 @@ fun humanBytes(b: Long): String {
 
 fun format(metric: Metric, value: Long): String = when (metric) {
     Metric.SIZE -> humanBytes(value)
-    Metric.LOC, Metric.NON_BLANK_LOC -> "%,d lines".format(value)
+    Metric.LOC, Metric.NON_BLANK_LOC, Metric.CODE_LOC -> "%,d lines".format(value)
     Metric.FILE_COUNT -> "%,d files".format(value)
 }
