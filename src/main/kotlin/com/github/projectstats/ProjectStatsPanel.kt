@@ -18,10 +18,11 @@ import java.awt.Component
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.Font
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.Box
-import javax.swing.BoxLayout
+import javax.swing.BorderFactory
 import javax.swing.JButton
 import javax.swing.JCheckBox
 import javax.swing.JLabel
@@ -51,7 +52,11 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         margin = JBUI.emptyInsets()
         putClientProperty("JButton.buttonType", "toolBarButton")
     }
-    private val summary = JBLabel(" ")
+    private val footerStatus = JBLabel(" ")
+    private val kpiFiles = kpiLabel()
+    private val kpiLoc = kpiLabel()
+    private val kpiSize = kpiLabel()
+    private val kpiScan = kpiLabel()
     private val breadcrumbRow = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
         border = JBUI.Borders.emptyTop(2)
         isVisible = false
@@ -61,6 +66,8 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val stackedBar = StackedBarPanel()
     private val tableModel = StatsTableModel()
     private val table = JBTable(tableModel)
+    private val totalsModel = TotalsTableModel()
+    private val totalsTable = JBTable(totalsModel)
 
     private var scanResult: ScanResult? = null
     private var rootGroups: List<StatGroup> = emptyList()
@@ -93,21 +100,34 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         }
 
         configureTable()
+        configureTotalsTable()
+
+        val tableBlock = JPanel(BorderLayout()).apply {
+            add(JBScrollPane(table), BorderLayout.CENTER)
+            add(totalsTable, BorderLayout.SOUTH)
+        }
 
         val centerTop = JPanel(BorderLayout()).apply {
             add(barPanel, BorderLayout.NORTH)
             add(treemap, BorderLayout.CENTER)
         }
 
-        val split = JSplitPane(JSplitPane.HORIZONTAL_SPLIT, centerTop, JBScrollPane(table)).apply {
+        val split = JSplitPane(JSplitPane.HORIZONTAL_SPLIT, centerTop, tableBlock).apply {
             resizeWeight = 0.6
             dividerSize = 4
         }
 
+        val kpis = JPanel(FlowLayout(FlowLayout.LEFT, 16, 2)).apply {
+            add(kpiBlock("Files", kpiFiles))
+            add(kpiBlock("LOC", kpiLoc))
+            add(kpiBlock("Size", kpiSize))
+            add(kpiBlock("Scan", kpiScan))
+        }
         val footer = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.emptyTop(4)
-            add(summary, BorderLayout.CENTER)
+            add(kpis, BorderLayout.CENTER)
             add(refreshBtn, BorderLayout.EAST)
+            add(footerStatus, BorderLayout.SOUTH)
         }
 
         add(header, BorderLayout.NORTH)
@@ -142,9 +162,49 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         })
     }
 
+    private fun configureTotalsTable() {
+        totalsTable.tableHeader = null
+        totalsTable.setShowGrid(false)
+        totalsTable.intercellSpacing = Dimension(0, 0)
+        totalsTable.isFocusable = false
+        totalsTable.rowSelectionAllowed = false
+        totalsTable.columnModel = table.columnModel
+        totalsTable.rowHeight = table.rowHeight + 2
+        totalsTable.border = BorderFactory.createMatteBorder(
+            2, 0, 0, 0, JBColor.border(),
+        )
+        val boldFont = totalsTable.font.deriveFont(Font.BOLD)
+        totalsTable.setDefaultRenderer(Any::class.java, object : DefaultTableCellRenderer() {
+            override fun getTableCellRendererComponent(
+                table: JTable, value: Any?, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int
+            ): Component {
+                val c = super.getTableCellRendererComponent(table, value, false, false, row, column)
+                font = boldFont
+                horizontalAlignment = if (column == 0) SwingConstants.LEFT else SwingConstants.RIGHT
+                return c
+            }
+        })
+    }
+
+    private fun kpiLabel(): JBLabel = JBLabel("–").apply {
+        font = font.deriveFont(Font.BOLD, font.size2D + 3f)
+    }
+
+    private fun kpiBlock(caption: String, value: JBLabel): JPanel {
+        val block = JPanel()
+        block.layout = BorderLayout(0, 0)
+        val cap = JBLabel(caption).apply {
+            foreground = JBColor.GRAY
+            font = font.deriveFont(font.size2D - 1f)
+        }
+        block.add(cap, BorderLayout.NORTH)
+        block.add(value, BorderLayout.CENTER)
+        return block
+    }
+
     fun runScan() {
         setScanning(true)
-        summary.text = "Scanning…"
+        footerStatus.text = "Scanning…"
         object : Task.Backgroundable(project, "Computing project statistics", true) {
             override fun run(indicator: ProgressIndicator) {
                 indicator.isIndeterminate = false
@@ -153,6 +213,7 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
                 ApplicationManager.getApplication().invokeLater {
                     scanResult = result
                     setScanning(false)
+                    footerStatus.text = " "
                     refreshViews()
                 }
             }
@@ -160,14 +221,14 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
             override fun onCancel() {
                 ApplicationManager.getApplication().invokeLater {
                     setScanning(false)
-                    summary.text = "Scan cancelled."
+                    footerStatus.text = "Scan cancelled."
                 }
             }
 
             override fun onThrowable(error: Throwable) {
                 ApplicationManager.getApplication().invokeLater {
                     setScanning(false)
-                    summary.text = "Scan failed: ${error.message}"
+                    footerStatus.text = "Scan failed: ${error.message}"
                 }
             }
         }.queue()
@@ -182,13 +243,15 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     private fun refreshViews() {
         val result = scanResult ?: run {
-            summary.text = "Click the play button to scan the project."
+            footerStatus.text = "Click the play button to scan the project."
+            setKpis(0L, 0L, 0L, 0L)
             rootGroups = emptyList()
             currentColorFn = { JBColor.GRAY }
             treemap.setSingleClickDrill(false)
             treemap.setData(emptyList(), Metric.LOC, currentColorFn)
             stackedBar.setData(emptyList(), Metric.LOC) { JBColor.GRAY }
             tableModel.update(emptyList(), Metric.LOC)
+            totalsModel.clear()
             updateBreadcrumbs()
             return
         }
@@ -215,7 +278,7 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     /**
-     * Sync table, stacked bar, and summary with the treemap's current drill level.
+     * Sync table, stacked bar, and footer KPIs with the treemap's current drill level.
      * `drilled == null` means root level (top-level aggregated groups).
      */
     private fun applyDrill(drilled: StatGroup?) {
@@ -232,19 +295,21 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         val scopeCplx = drilled?.complexity ?: result.complexity
         val scopeSize = drilled?.sizeBytes ?: result.sizeBytes
         val scopeCommits = drilled?.commitCount ?: result.commitCount
-        val totalMetric = shown.sumOf { it.value(metric) }
-        summary.text = buildString {
-            append("Files: %,d | ".format(scopeFiles))
-            append("Total LOC: %,d | ".format(scopeTotal))
-            append("Non-blank: %,d | ".format(scopeNonBlank))
-            append("Code LOC: %,d | ".format(scopeCode))
-            append("Complexity: %,d | ".format(scopeCplx))
-            append("Commits: %,d | ".format(scopeCommits))
-            append("Size: ${humanBytes(scopeSize)} | ")
-            append("Scan: ${result.scannedMillis} ms | ")
-            append("Shown (${metric.display}): ${format(metric, totalMetric)}")
-        }
+
+        setKpis(result.fileCount, result.totalLines, result.sizeBytes, result.scannedMillis)
+        val scopeLabel = drilled?.key ?: "Total"
+        totalsModel.update(
+            scopeLabel,
+            scopeFiles, scopeTotal, scopeNonBlank, scopeCode, scopeCplx, scopeCommits, scopeSize,
+        )
         updateBreadcrumbs()
+    }
+
+    private fun setKpis(files: Long, loc: Long, size: Long, scanMs: Long) {
+        kpiFiles.text = "%,d".format(files)
+        kpiLoc.text = "%,d".format(loc)
+        kpiSize.text = humanBytes(size)
+        kpiScan.text = "$scanMs ms"
     }
 
     private fun updateBreadcrumbs() {
@@ -344,5 +409,57 @@ private class StatsTableModel : AbstractTableModel() {
             9 -> r.children.size.toLong()
             else -> ""
         }
+    }
+}
+
+private class TotalsTableModel : AbstractTableModel() {
+    private var label: String = "Total"
+    private var files: Long = 0
+    private var loc: Long = 0
+    private var nonBlank: Long = 0
+    private var code: Long = 0
+    private var complexity: Long = 0
+    private var commits: Long = 0
+    private var size: Long = 0
+    private var hasData: Boolean = false
+
+    fun update(label: String, files: Long, loc: Long, nonBlank: Long, code: Long, complexity: Long, commits: Long, size: Long) {
+        this.label = label
+        this.files = files
+        this.loc = loc
+        this.nonBlank = nonBlank
+        this.code = code
+        this.complexity = complexity
+        this.commits = commits
+        this.size = size
+        this.hasData = true
+        fireTableDataChanged()
+    }
+
+    fun clear() {
+        hasData = false
+        fireTableDataChanged()
+    }
+
+    override fun getRowCount(): Int = if (hasData) 1 else 0
+    override fun getColumnCount(): Int = 10
+    override fun getColumnClass(columnIndex: Int): Class<*> = when (columnIndex) {
+        1, 2, 3, 4, 5, 6, 7, 9 -> java.lang.Long::class.java
+        8 -> java.lang.Double::class.java
+        else -> String::class.java
+    }
+
+    override fun getValueAt(rowIndex: Int, columnIndex: Int): Any = when (columnIndex) {
+        0 -> "Σ  $label"
+        1 -> files
+        2 -> loc
+        3 -> nonBlank
+        4 -> code
+        5 -> complexity
+        6 -> commits
+        7 -> size
+        8 -> 100.0
+        9 -> ""
+        else -> ""
     }
 }
