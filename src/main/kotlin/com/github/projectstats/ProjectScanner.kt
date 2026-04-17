@@ -84,7 +84,7 @@ object ProjectScanner {
 
     private fun classify(
         file: VirtualFile,
-        @Suppress("UNUSED_PARAMETER") project: Project,
+        project: Project,
         fileIndex: ProjectFileIndex,
         projectBase: VirtualFile?,
     ): FileStat? {
@@ -177,6 +177,11 @@ object ProjectScanner {
                 // ignore unreadable files; keep size only
             }
         }
+
+        // PSI-based complexity is more accurate for Java/Kotlin (handles operators, no false positives
+        // from string literals). Falls back to the keyword count already computed above for other languages.
+        val psiComplexity = PsiComplexityCalculator.calculate(file, project)
+        if (psiComplexity != null) complexity = psiComplexity
 
         return FileStat(
             relativePath = relPath(file, projectBase),
