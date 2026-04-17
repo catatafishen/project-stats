@@ -202,6 +202,7 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         val scopeCode = drilled?.codeLines ?: result.codeLines
         val scopeCplx = drilled?.complexity ?: result.complexity
         val scopeSize = drilled?.sizeBytes ?: result.sizeBytes
+        val scopeCommits = drilled?.commitCount ?: result.commitCount
         val totalMetric = shown.sumOf { it.value(metric) }
         summary.text = buildString {
             append("Files: %,d | ".format(scopeFiles))
@@ -209,6 +210,7 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
             append("Non-blank: %,d | ".format(scopeNonBlank))
             append("Code LOC: %,d | ".format(scopeCode))
             append("Complexity: %,d | ".format(scopeCplx))
+            append("Commits: %,d | ".format(scopeCommits))
             append("Size: ${humanBytes(scopeSize)} | ")
             append("Scan: ${result.scannedMillis} ms | ")
             append("Shown (${metric.display}): ${format(metric, totalMetric)}")
@@ -232,8 +234,6 @@ private class StatsTableModel : AbstractTableModel() {
     private var total: Long = 0
     private var metric: Metric = Metric.LOC
 
-    private val cols = arrayOf("Name", "Files", "LOC", "Non-blank", "Size", "% of $ $", "Children")
-
     fun update(groups: List<StatGroup>, metric: Metric) {
         this.rows = groups
         this.metric = metric
@@ -242,7 +242,7 @@ private class StatsTableModel : AbstractTableModel() {
     }
 
     override fun getRowCount(): Int = rows.size
-    override fun getColumnCount(): Int = 9
+    override fun getColumnCount(): Int = 10
     override fun getColumnName(column: Int): String = when (column) {
         0 -> "Name"
         1 -> "Files"
@@ -250,16 +250,17 @@ private class StatsTableModel : AbstractTableModel() {
         3 -> "Non-blank"
         4 -> "Code LOC"
         5 -> "Complexity"
-        6 -> "Size"
-        7 -> "% of ${metric.display}"
-        8 -> "Children"
+        6 -> "Commits"
+        7 -> "Size"
+        8 -> "% of ${metric.display}"
+        9 -> "Children"
         else -> ""
     }
 
     override fun getColumnClass(columnIndex: Int): Class<*> = when (columnIndex) {
-        1, 2, 3, 4, 5, 8 -> java.lang.Long::class.java
-        6 -> java.lang.Long::class.java
-        7 -> java.lang.Double::class.java
+        1, 2, 3, 4, 5, 6, 9 -> java.lang.Long::class.java
+        7 -> java.lang.Long::class.java
+        8 -> java.lang.Double::class.java
         else -> String::class.java
     }
 
@@ -272,9 +273,10 @@ private class StatsTableModel : AbstractTableModel() {
             3 -> r.nonBlankLines
             4 -> r.codeLines
             5 -> r.complexity
-            6 -> r.sizeBytes
-            7 -> if (total > 0) 100.0 * r.value(metric) / total else 0.0
-            8 -> r.children.size.toLong()
+            6 -> r.commitCount
+            7 -> r.sizeBytes
+            8 -> if (total > 0) 100.0 * r.value(metric) / total else 0.0
+            9 -> r.children.size.toLong()
             else -> ""
         }
     }

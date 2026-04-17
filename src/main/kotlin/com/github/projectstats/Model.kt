@@ -26,6 +26,7 @@ data class FileStat(
     val codeLines: Int,
     val complexity: Int,
     val sizeBytes: Long,
+    val commitCount: Int = 0,
     val fileCount: Int = 1,
 )
 
@@ -40,6 +41,7 @@ data class StatGroup(
     val complexity: Long,
     val sizeBytes: Long,
     val fileCount: Long,
+    val commitCount: Long,
     val children: List<StatGroup> = emptyList(),
 ) {
     fun value(metric: Metric): Long = when (metric) {
@@ -49,6 +51,7 @@ data class StatGroup(
         Metric.COMPLEXITY -> complexity
         Metric.SIZE -> sizeBytes
         Metric.FILE_COUNT -> fileCount
+        Metric.COMMIT_COUNT -> commitCount
     }
 }
 
@@ -58,7 +61,8 @@ enum class Metric(val display: String) {
     CODE_LOC("Code LOC"),
     COMPLEXITY("Complexity"),
     SIZE("File size"),
-    FILE_COUNT("File count");
+    FILE_COUNT("File count"),
+    COMMIT_COUNT("Commits");
 
     override fun toString() = display
 }
@@ -83,5 +87,6 @@ data class ScanResult(
     val complexity: Long,
     val sizeBytes: Long,
     val fileCount: Long,
+    val commitCount: Long,
     val scannedMillis: Long,
 )
