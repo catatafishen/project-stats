@@ -9,5 +9,6 @@
         <option value="get_notifications" />
       </set>
     </option>
+    <option name="port" value="8643" />
   </component>
 </project>

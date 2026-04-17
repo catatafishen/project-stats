@@ -191,8 +191,11 @@ object ProjectScanner {
 
         // PSI-based complexity is more accurate for Java/Kotlin (handles operators, no false positives
         // from string literals). Falls back to the keyword count already computed above for other languages.
-        val psiComplexity = PsiComplexityCalculator.calculate(file, project)
-        if (psiComplexity != null) complexity = psiComplexity
+        // Binary files (e.g. .class) have no source PSI tree — skip to avoid compiled-PSI walking errors.
+        if (!isBinary) {
+            val psiComplexity = PsiComplexityCalculator.calculate(file, project)
+            if (psiComplexity != null) complexity = psiComplexity
+        }
 
         return FileStat(
             relativePath = relPath(file, projectBase),
