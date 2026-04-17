@@ -1,10 +1,12 @@
 package com.github.projectstats
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
+import com.intellij.ui.AnimatedIcon
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -13,8 +15,11 @@ import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
+import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JButton
@@ -38,9 +43,19 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val includeGenerated = JCheckBox("Generated", false)
     private val includeResources = JCheckBox("Resources", true)
     private val includeOther = JCheckBox("Other", true)
-    private val refreshBtn = JButton("Refresh")
-    private val upBtn = JButton("↑ Up")
+    private val refreshBtn = JButton(AllIcons.Actions.Execute).apply {
+        toolTipText = "Scan project"
+        isFocusable = false
+        isBorderPainted = false
+        isContentAreaFilled = false
+        margin = JBUI.emptyInsets()
+        putClientProperty("JButton.buttonType", "toolBarButton")
+    }
     private val summary = JBLabel(" ")
+    private val breadcrumbRow = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+        border = JBUI.Borders.emptyTop(2)
+        isVisible = false
+    }
 
     private val treemap = TreemapPanel()
     private val stackedBar = StackedBarPanel()
@@ -50,6 +65,7 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     private var scanResult: ScanResult? = null
     private var rootGroups: List<StatGroup> = emptyList()
     private var currentColorFn: (StatGroup) -> Color = { JBColor.GRAY }
+    private var scanning: Boolean = false
 
     init {
         border = JBUI.Borders.empty(4)
@@ -65,13 +81,10 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         toolbar.add(includeGenerated)
         toolbar.add(includeResources)
         toolbar.add(includeOther)
-        toolbar.add(Box.createHorizontalStrut(8))
-        toolbar.add(refreshBtn)
-        toolbar.add(upBtn)
 
         val header = JPanel(BorderLayout())
         header.add(toolbar, BorderLayout.NORTH)
-        header.add(summary, BorderLayout.SOUTH)
+        header.add(breadcrumbRow, BorderLayout.SOUTH)
 
         val barPanel = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.emptyTop(4)
@@ -91,11 +104,17 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
             dividerSize = 4
         }
 
+        val footer = JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.emptyTop(4)
+            add(summary, BorderLayout.CENTER)
+            add(refreshBtn, BorderLayout.EAST)
+        }
+
         add(header, BorderLayout.NORTH)
         add(split, BorderLayout.CENTER)
+        add(footer, BorderLayout.SOUTH)
 
         refreshBtn.addActionListener { runScan() }
-        upBtn.addActionListener { treemap.popDrill() }
         groupByBox.addActionListener { refreshViews() }
         metricBox.addActionListener { refreshViews() }
         includeTests.addActionListener { refreshViews() }
@@ -124,7 +143,7 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     fun runScan() {
-        refreshBtn.isEnabled = false
+        setScanning(true)
         summary.text = "Scanning…"
         object : Task.Backgroundable(project, "Computing project statistics", true) {
             override fun run(indicator: ProgressIndicator) {
@@ -133,35 +152,44 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
                 val result = ProjectScanner.scan(project, indicator)
                 ApplicationManager.getApplication().invokeLater {
                     scanResult = result
-                    refreshBtn.isEnabled = true
+                    setScanning(false)
                     refreshViews()
                 }
             }
 
             override fun onCancel() {
                 ApplicationManager.getApplication().invokeLater {
-                    refreshBtn.isEnabled = true
+                    setScanning(false)
                     summary.text = "Scan cancelled."
                 }
             }
 
             override fun onThrowable(error: Throwable) {
                 ApplicationManager.getApplication().invokeLater {
-                    refreshBtn.isEnabled = true
+                    setScanning(false)
                     summary.text = "Scan failed: ${error.message}"
                 }
             }
         }.queue()
     }
 
+    private fun setScanning(running: Boolean) {
+        scanning = running
+        refreshBtn.icon = if (running) AnimatedIcon.Default.INSTANCE else AllIcons.Actions.Execute
+        refreshBtn.toolTipText = if (running) "Scanning…" else "Scan project"
+        refreshBtn.isEnabled = !running
+    }
+
     private fun refreshViews() {
         val result = scanResult ?: run {
-            summary.text = "Click Refresh to scan the project."
+            summary.text = "Click the play button to scan the project."
             rootGroups = emptyList()
             currentColorFn = { JBColor.GRAY }
+            treemap.setSingleClickDrill(false)
             treemap.setData(emptyList(), Metric.LOC, currentColorFn)
             stackedBar.setData(emptyList(), Metric.LOC) { JBColor.GRAY }
             tableModel.update(emptyList(), Metric.LOC)
+            updateBreadcrumbs()
             return
         }
         val groupBy = groupByBox.selectedItem as GroupBy
@@ -180,6 +208,7 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
             else -> { g -> hashColor(g.key) }
         }
         rootGroups = groups
+        treemap.setSingleClickDrill(groupBy == GroupBy.DIRECTORY)
         // setData clears drill internally; we then render the (now-root) level into the table/bar.
         treemap.setData(groups, metric, currentColorFn)
         applyDrill(null)
@@ -214,8 +243,44 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
             append("Size: ${humanBytes(scopeSize)} | ")
             append("Scan: ${result.scannedMillis} ms | ")
             append("Shown (${metric.display}): ${format(metric, totalMetric)}")
-            if (treemap.currentPath().isNotEmpty()) append(" | Drill: ${treemap.currentPath()}")
         }
+        updateBreadcrumbs()
+    }
+
+    private fun updateBreadcrumbs() {
+        breadcrumbRow.removeAll()
+        val isDir = (groupByBox.selectedItem as? GroupBy) == GroupBy.DIRECTORY
+        if (!isDir) {
+            breadcrumbRow.isVisible = false
+            breadcrumbRow.revalidate()
+            breadcrumbRow.repaint()
+            return
+        }
+        breadcrumbRow.isVisible = true
+        breadcrumbRow.add(JLabel("Path:"))
+        breadcrumbRow.add(crumbLabel("<project>", 0))
+        val depth = treemap.drillDepth()
+        for (i in 0 until depth) {
+            breadcrumbRow.add(JLabel("/"))
+            breadcrumbRow.add(crumbLabel(treemap.drillStepDisplay(i), i + 1))
+        }
+        breadcrumbRow.revalidate()
+        breadcrumbRow.repaint()
+    }
+
+    private fun crumbLabel(text: String, targetDepth: Int): JLabel {
+        val isCurrent = targetDepth == treemap.drillDepth()
+        val label = JLabel(if (isCurrent) "<html><b>$text</b></html>" else "<html><a href=''>$text</a></html>")
+        if (!isCurrent) {
+            label.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            label.toolTipText = "Go to $text"
+            label.addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) {
+                    treemap.popToDepth(targetDepth)
+                }
+            })
+        }
+        return label
     }
 
     private fun categoryColor(key: String): Color = when (key) {

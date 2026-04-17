@@ -3,6 +3,7 @@ package com.github.projectstats
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import java.awt.Color
+import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Graphics2D
@@ -10,6 +11,7 @@ import java.awt.Point
 import java.awt.RenderingHints
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.awt.event.MouseMotionAdapter
 import java.awt.geom.Rectangle2D
 import javax.swing.JPanel
 
@@ -31,6 +33,7 @@ class TreemapPanel : JPanel() {
     private var rects: List<Pair<Rectangle2D.Double, StatGroup>> = emptyList()
     private var colorFor: (StatGroup) -> Color = { hashColor(it.key) }
     private var onDrillChanged: ((StatGroup?) -> Unit)? = null
+    private var singleClickDrill: Boolean = false
 
     init {
         background = JBColor.background()
@@ -38,15 +41,32 @@ class TreemapPanel : JPanel() {
         addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
                 val hit = hitTest(e.point) ?: return
-                if (e.clickCount == 2 && hit.children.isNotEmpty()) {
+                val hasChildren = hit.children.isNotEmpty()
+                val drillClick = (singleClickDrill && e.clickCount == 1 && e.button == MouseEvent.BUTTON1)
+                        || e.clickCount == 2
+                if (drillClick && hasChildren) {
                     drillInto(hit)
-                } else if (e.button == MouseEvent.BUTTON3 || (e.clickCount == 2 && hit.children.isEmpty())) {
+                } else if (e.button == MouseEvent.BUTTON3 || (e.clickCount == 2 && !hasChildren)) {
                     // right-click or double-click on a leaf goes back a level
                     popDrill()
                 }
             }
         })
+        addMouseMotionListener(object : MouseMotionAdapter() {
+            override fun mouseMoved(e: MouseEvent) {
+                val hit = hitTest(e.point)
+                val drillable = singleClickDrill && hit != null && hit.children.isNotEmpty()
+                cursor = if (drillable) Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                else Cursor.getDefaultCursor()
+            }
+        })
         toolTipText = "" // enable tooltips
+    }
+
+    /** Enable single-click drill-down (with hand cursor) for drillable cells. */
+    fun setSingleClickDrill(enabled: Boolean) {
+        singleClickDrill = enabled
+        if (!enabled) cursor = Cursor.getDefaultCursor()
     }
 
     fun setData(groups: List<StatGroup>, metric: Metric, colorFn: (StatGroup) -> Color) {
@@ -68,6 +88,20 @@ class TreemapPanel : JPanel() {
 
     fun currentPath(): String =
         if (drillStack.isEmpty()) "" else drillStack.joinToString(" / ") { it.display() }
+
+    /** Number of drill steps currently on the stack. */
+    fun drillDepth(): Int = drillStack.size
+
+    /** Display string of the drill step at [index] (0-based). */
+    fun drillStepDisplay(index: Int): String = drillStack.elementAt(index).display()
+
+    /** Pop drill steps until only [keep] remain (0 = full reset to root). */
+    fun popToDepth(keep: Int) {
+        if (keep < 0 || keep >= drillStack.size) return
+        while (drillStack.size > keep) drillStack.removeLast()
+        repaint()
+        onDrillChanged?.invoke(currentDrilledGroup())
+    }
 
     fun popDrill(): Boolean {
         if (drillStack.isEmpty()) return false
@@ -101,7 +135,9 @@ class TreemapPanel : JPanel() {
     override fun getToolTipText(event: MouseEvent): String? {
         val hit = hitTest(event.point) ?: return null
         val v = hit.value(metric)
-        val suffix = if (hit.children.isNotEmpty()) "  (double-click to drill in)" else ""
+        val suffix = if (hit.children.isNotEmpty()) {
+            if (singleClickDrill) "  (click to drill in)" else "  (double-click to drill in)"
+        } else ""
         return "<html><b>${escape(hit.key)}</b><br/>" +
                 "${metric.display}: ${format(metric, v)}<br/>" +
                 "Files: ${hit.fileCount}, Total LOC: ${hit.totalLines}, Size: ${humanBytes(hit.sizeBytes)}" +
@@ -148,8 +184,8 @@ class TreemapPanel : JPanel() {
             }
         }
 
-        // Breadcrumb
-        if (drillStack.isNotEmpty()) {
+        // In-treemap breadcrumb (double-click modes only — directory mode shows a toolbar breadcrumb).
+        if (drillStack.isNotEmpty() && !singleClickDrill) {
             val crumb = "▲ ${currentPath()}  (right-click or double-click a leaf to go back)"
             g2.color = JBColor.foreground()
             g2.drawString(crumb, 6, height - 6)

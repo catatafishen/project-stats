@@ -13,6 +13,9 @@ import com.intellij.openapi.vfs.VirtualFileVisitor
 import org.jetbrains.jps.model.java.JavaResourceRootType
 import org.jetbrains.jps.model.java.JavaSourceRootType
 import org.jetbrains.jps.model.module.JpsModuleSourceRootType
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 object ProjectScanner {
 
@@ -26,14 +29,6 @@ object ProjectScanner {
 
         indicator?.text = "Scanning project files"
 
-        val files = ArrayList<FileStat>(4096)
-        var totalLines = 0L
-        var nonBlank = 0L
-        var codeL = 0L
-        var complexityTotal = 0L
-        var size = 0L
-        var commitsTotal = 0L
-
         val rootManager = ProjectRootManager.getInstance(project)
         val fileIndex = rootManager.fileIndex
         val projectBase: VirtualFile? = project.baseDir
@@ -42,8 +37,9 @@ object ProjectScanner {
         roots.addAll(rootManager.contentRoots)
         if (projectBase != null) roots.add(projectBase)
 
+        // Phase 1: walk VFS (fast, sequential) to collect files.
+        val toProcess = ArrayList<VirtualFile>(4096)
         val seenPaths = HashSet<String>(4096)
-        var visited = 0
         for (root in roots) {
             indicator?.checkCanceled()
             VfsUtilCore.visitChildrenRecursively(root, object : VirtualFileVisitor<Any?>() {
@@ -58,26 +54,64 @@ object ProjectScanner {
                         ) return false
                         return true
                     }
-                    if (!seenPaths.add(file.path)) return true
-                    visited++
-                    if (visited % 200 == 0) {
-                        indicator?.text2 = "Scanning ${file.presentableUrl}"
-                    }
-                    val baseStat = ReadAction.compute<FileStat?, RuntimeException> {
-                        classify(file, project, fileIndex, projectBase)
-                    } ?: return true
-                    val stat = if (commitCounts.isEmpty()) baseStat
-                    else baseStat.copy(commitCount = commitCounts[file.path] ?: 0)
-                    files += stat
-                    totalLines += stat.totalLines
-                    nonBlank += stat.nonBlankLines
-                    codeL += stat.codeLines
-                    complexityTotal += stat.complexity
-                    size += stat.sizeBytes
-                    commitsTotal += stat.commitCount
+                    if (seenPaths.add(file.path)) toProcess += file
                     return true
                 }
             })
+        }
+
+        // Phase 2: classify in parallel. ReadAction is a shared read lock — multiple workers OK.
+        val parallelism = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
+        val executor = Executors.newFixedThreadPool(parallelism) { r ->
+            Thread(r, "project-stats-scanner").apply { isDaemon = true }
+        }
+
+        val files = ArrayList<FileStat>(toProcess.size)
+        var totalLines = 0L
+        var nonBlank = 0L
+        var codeL = 0L
+        var complexityTotal = 0L
+        var size = 0L
+        var commitsTotal = 0L
+        val progressStep = (toProcess.size / 100).coerceAtLeast(50)
+
+        try {
+            val futures = toProcess.map { file ->
+                executor.submit(Callable<FileStat?> {
+                    ReadAction.compute<FileStat?, RuntimeException> {
+                        classify(file, project, fileIndex, projectBase)
+                    }?.let { base ->
+                        if (commitCounts.isEmpty()) base
+                        else base.copy(commitCount = commitCounts[file.path] ?: 0)
+                    }
+                })
+            }
+            var done = 0
+            for ((idx, f) in futures.withIndex()) {
+                indicator?.checkCanceled()
+                val stat = try {
+                    f.get()
+                } catch (e: java.util.concurrent.ExecutionException) {
+                    val cause = e.cause
+                    if (cause is RuntimeException) throw cause
+                    throw RuntimeException(cause ?: e)
+                }
+                done++
+                if (done % progressStep == 0) {
+                    indicator?.text2 = "Scanning ${toProcess[idx].presentableUrl}"
+                }
+                if (stat == null) continue
+                files += stat
+                totalLines += stat.totalLines
+                nonBlank += stat.nonBlankLines
+                codeL += stat.codeLines
+                complexityTotal += stat.complexity
+                size += stat.sizeBytes
+                commitsTotal += stat.commitCount
+            }
+        } finally {
+            executor.shutdownNow()
+            executor.awaitTermination(2, TimeUnit.SECONDS)
         }
 
         return ScanResult(
@@ -191,10 +225,14 @@ object ProjectScanner {
 
         // PSI-based complexity is more accurate for Java/Kotlin (handles operators, no false positives
         // from string literals). Falls back to the keyword count already computed above for other languages.
-        // Binary files (e.g. .class) have no source PSI tree — skip to avoid compiled-PSI walking errors.
+        // Restrict to extensions we actually treat as code to avoid parsing JSON/XML/YAML/MD trees that
+        // yield no branches but still cost CPU. Binary files are also skipped.
         if (!isBinary) {
-            val psiComplexity = PsiComplexityCalculator.calculate(file, project)
-            if (psiComplexity != null) complexity = psiComplexity
+            val ext = file.extension?.lowercase() ?: ""
+            if (DECISION_KEYWORDS.containsKey(ext)) {
+                val psiComplexity = PsiComplexityCalculator.calculate(file, project)
+                if (psiComplexity != null) complexity = psiComplexity
+            }
         }
 
         return FileStat(
