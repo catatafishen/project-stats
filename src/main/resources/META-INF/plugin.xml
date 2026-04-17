@@ -1,0 +1,20 @@
+<idea-plugin>
+    <id>com.github.projectstats</id>
+    <name>Project Stats</name>
+    <vendor>project-stats</vendor>
+    <description><![CDATA[
+        Visualize where your project's source code size comes from.<br/>
+        Breaks down lines of code by <b>language</b>, <b>module</b>, <b>source category</b>
+        (source/test/resources/generated), or <b>directory tree</b> with a treemap,
+        GitHub-style stacked bar, and sortable table.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Project Stats"
+                    anchor="right"
+                    icon="AllIcons.Actions.ShowAsTree"
+                    factoryClass="com.github.projectstats.ProjectStatsToolWindowFactory"/>
+    </extensions>
+</idea-plugin>

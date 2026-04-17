@@ -1,0 +1,250 @@
+package com.github.projectstats
+
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.progress.ProgressIndicator
+import com.intellij.openapi.progress.Task
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.ComboBox
+import com.intellij.ui.JBColor
+import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.table.JBTable
+import com.intellij.util.ui.JBUI
+import java.awt.BorderLayout
+import java.awt.Color
+import java.awt.Component
+import java.awt.Dimension
+import java.awt.FlowLayout
+import javax.swing.Box
+import javax.swing.BoxLayout
+import javax.swing.JButton
+import javax.swing.JCheckBox
+import javax.swing.JLabel
+import javax.swing.JPanel
+import javax.swing.JSplitPane
+import javax.swing.JTable
+import javax.swing.RowSorter
+import javax.swing.SortOrder
+import javax.swing.SwingConstants
+import javax.swing.table.AbstractTableModel
+import javax.swing.table.DefaultTableCellRenderer
+import javax.swing.table.TableRowSorter
+
+class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
+
+    private val groupByBox = ComboBox(GroupBy.values()).apply { selectedItem = GroupBy.LANGUAGE }
+    private val metricBox = ComboBox(Metric.values()).apply { selectedItem = Metric.LOC }
+    private val includeTests = JCheckBox("Tests", true)
+    private val includeGenerated = JCheckBox("Generated", false)
+    private val includeResources = JCheckBox("Resources", true)
+    private val includeOther = JCheckBox("Other", true)
+    private val refreshBtn = JButton("Refresh")
+    private val upBtn = JButton("↑ Up")
+    private val summary = JBLabel(" ")
+
+    private val treemap = TreemapPanel()
+    private val stackedBar = StackedBarPanel()
+    private val tableModel = StatsTableModel()
+    private val table = JBTable(tableModel)
+
+    private var scanResult: ScanResult? = null
+
+    init {
+        border = JBUI.Borders.empty(4)
+
+        val toolbar = JPanel(FlowLayout(FlowLayout.LEFT, 6, 2))
+        toolbar.add(JLabel("Group by:"))
+        toolbar.add(groupByBox)
+        toolbar.add(JLabel("  Metric:"))
+        toolbar.add(metricBox)
+        toolbar.add(Box.createHorizontalStrut(8))
+        toolbar.add(JLabel("Include:"))
+        toolbar.add(includeTests)
+        toolbar.add(includeGenerated)
+        toolbar.add(includeResources)
+        toolbar.add(includeOther)
+        toolbar.add(Box.createHorizontalStrut(8))
+        toolbar.add(refreshBtn)
+        toolbar.add(upBtn)
+
+        val header = JPanel(BorderLayout())
+        header.add(toolbar, BorderLayout.NORTH)
+        header.add(summary, BorderLayout.SOUTH)
+
+        val barPanel = JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.emptyTop(4)
+            add(stackedBar, BorderLayout.CENTER)
+            preferredSize = Dimension(400, 24)
+        }
+
+        configureTable()
+
+        val centerTop = JPanel(BorderLayout()).apply {
+            add(barPanel, BorderLayout.NORTH)
+            add(treemap, BorderLayout.CENTER)
+        }
+
+        val split = JSplitPane(JSplitPane.HORIZONTAL_SPLIT, centerTop, JBScrollPane(table)).apply {
+            resizeWeight = 0.6
+            dividerSize = 4
+        }
+
+        add(header, BorderLayout.NORTH)
+        add(split, BorderLayout.CENTER)
+
+        refreshBtn.addActionListener { runScan() }
+        upBtn.addActionListener { if (treemap.popDrill()) refreshViews() }
+        groupByBox.addActionListener { refreshViews() }
+        metricBox.addActionListener { refreshViews() }
+        includeTests.addActionListener { refreshViews() }
+        includeGenerated.addActionListener { refreshViews() }
+        includeResources.addActionListener { refreshViews() }
+        includeOther.addActionListener { refreshViews() }
+    }
+
+    private fun configureTable() {
+        table.autoCreateRowSorter = false
+        val sorter = TableRowSorter(tableModel)
+        table.rowSorter = sorter
+        sorter.sortKeys = listOf(RowSorter.SortKey(2, SortOrder.DESCENDING))
+        table.setDefaultRenderer(Any::class.java, object : DefaultTableCellRenderer() {
+            override fun getTableCellRendererComponent(
+                table: JTable, value: Any?, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int
+            ): Component {
+                val c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
+                horizontalAlignment = if (column == 0) SwingConstants.LEFT else SwingConstants.RIGHT
+                return c
+            }
+        })
+    }
+
+    fun runScan() {
+        refreshBtn.isEnabled = false
+        summary.text = "Scanning…"
+        object : Task.Backgroundable(project, "Computing project statistics", true) {
+            override fun run(indicator: ProgressIndicator) {
+                indicator.isIndeterminate = false
+                indicator.text = "Scanning project files"
+                val result = ProjectScanner.scan(project, indicator)
+                ApplicationManager.getApplication().invokeLater {
+                    scanResult = result
+                    refreshBtn.isEnabled = true
+                    refreshViews()
+                }
+            }
+
+            override fun onCancel() {
+                ApplicationManager.getApplication().invokeLater {
+                    refreshBtn.isEnabled = true
+                    summary.text = "Scan cancelled."
+                }
+            }
+
+            override fun onThrowable(error: Throwable) {
+                ApplicationManager.getApplication().invokeLater {
+                    refreshBtn.isEnabled = true
+                    summary.text = "Scan failed: ${error.message}"
+                }
+            }
+        }.queue()
+    }
+
+    private fun refreshViews() {
+        val result = scanResult ?: run {
+            summary.text = "Click Refresh to scan the project."
+            treemap.setData(emptyList(), Metric.LOC) { JBColor.GRAY }
+            stackedBar.setData(emptyList(), Metric.LOC) { JBColor.GRAY }
+            tableModel.update(emptyList(), Metric.LOC)
+            return
+        }
+        val groupBy = groupByBox.selectedItem as GroupBy
+        val metric = metricBox.selectedItem as Metric
+        val groups = StatsAggregator.aggregate(
+            result,
+            groupBy,
+            includeTests.isSelected,
+            includeGenerated.isSelected,
+            includeResources.isSelected,
+            includeOther.isSelected,
+        )
+        // Stable coloring for flat dimensions; directory gets per-name coloring too.
+        val colorFn: (StatGroup) -> Color = when (groupBy) {
+            GroupBy.CATEGORY -> { g -> categoryColor(g.key) }
+            else -> { g -> hashColor(g.key) }
+        }
+        treemap.setData(groups, metric, colorFn)
+        stackedBar.setData(groups, metric, colorFn)
+        tableModel.update(groups, metric)
+
+        val totalMetric = groups.sumOf { it.value(metric) }
+        val totalFiles = result.fileCount
+        summary.text = buildString {
+            append("Files: %,d | ".format(totalFiles))
+            append("Total LOC: %,d | ".format(result.totalLines))
+            append("Non-blank: %,d | ".format(result.nonBlankLines))
+            append("Size: ${humanBytes(result.sizeBytes)} | ")
+            append("Scan: ${result.scannedMillis} ms | ")
+            append("Shown (${metric.display}): ${format(metric, totalMetric)}")
+            if (treemap.currentPath().isNotEmpty()) append(" | Drill: ${treemap.currentPath()}")
+        }
+    }
+
+    private fun categoryColor(key: String): Color = when (key) {
+        SourceCategory.SOURCE.display -> JBColor(Color(0x3F8EDC), Color(0x4A90E2))
+        SourceCategory.TEST.display -> JBColor(Color(0x5CB85C), Color(0x4CAF50))
+        SourceCategory.RESOURCES.display -> JBColor(Color(0xF0AD4E), Color(0xE08E0B))
+        SourceCategory.TEST_RESOURCES.display -> JBColor(Color(0xD9A441), Color(0xB8860B))
+        SourceCategory.GENERATED.display -> JBColor(Color(0xB577C9), Color(0x9C27B0))
+        SourceCategory.OTHER.display -> JBColor(Color(0x999999), Color(0x777777))
+        else -> hashColor(key)
+    }
+}
+
+private class StatsTableModel : AbstractTableModel() {
+    private var rows: List<StatGroup> = emptyList()
+    private var total: Long = 0
+    private var metric: Metric = Metric.LOC
+
+    private val cols = arrayOf("Name", "Files", "LOC", "Non-blank", "Size", "% of $ $", "Children")
+
+    fun update(groups: List<StatGroup>, metric: Metric) {
+        this.rows = groups
+        this.metric = metric
+        this.total = groups.sumOf { it.value(metric) }
+        fireTableStructureChanged()
+    }
+
+    override fun getRowCount(): Int = rows.size
+    override fun getColumnCount(): Int = 7
+    override fun getColumnName(column: Int): String = when (column) {
+        0 -> "Name"
+        1 -> "Files"
+        2 -> "LOC"
+        3 -> "Non-blank"
+        4 -> "Size"
+        5 -> "% of ${metric.display}"
+        6 -> "Children"
+        else -> ""
+    }
+
+    override fun getColumnClass(columnIndex: Int): Class<*> = when (columnIndex) {
+        1, 2, 3, 6 -> java.lang.Long::class.java
+        4 -> java.lang.Long::class.java
+        5 -> java.lang.Double::class.java
+        else -> String::class.java
+    }
+
+    override fun getValueAt(rowIndex: Int, columnIndex: Int): Any {
+        val r = rows[rowIndex]
+        return when (columnIndex) {
+            0 -> r.key
+            1 -> r.fileCount
+            2 -> r.totalLines
+            3 -> r.nonBlankLines
+            4 -> r.sizeBytes
+            5 -> if (total > 0) 100.0 * r.value(metric) / total else 0.0
+            6 -> r.children.size.toLong()
+            else -> ""
+        }
+    }
+}
