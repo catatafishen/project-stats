@@ -28,7 +28,7 @@ intellijPlatform {
     pluginConfiguration {
         ideaVersion {
             sinceBuild = "242"
-            untilBuild = "252.*"
+            untilBuild = "261.*"
         }
     }
     buildSearchableOptions = false
