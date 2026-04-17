@@ -47,12 +47,18 @@ intellijPlatform {
     }
     pluginVerification {
         ides {
+<<<<<<< HEAD
             // Verify against 2025.3 where ToolWindowFactory.getIcon/getAnchor/manage are
             // @Experimental (not @Internal as in 242–252). Kotlin generates bridge methods
             // for all Java interface defaults, so any ToolWindowFactory impl inherits them.
             // No alternative API exists — these are unavoidable inherited defaults.
             // Since 2025.3, IC artifacts moved to "intellijIdea" (no longer "ideaIC").
             create(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdea, "2025.3")
+=======
+            // Pin to a known-released IDE to avoid flaky `recommended()` picking
+            // versions whose tarballs are not yet published to the download mirror.
+            create(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdeaCommunity, "2024.2.3")
+>>>>>>> b985fc7 (chore(deps): bump gradle-wrapper to 9.4.1 and intellij-platform plugin to 2.14.0)
         }
         // Fail the build on internal API usages and real compatibility problems.
         // Deprecated and experimental API usages are reported as warnings but do NOT
@@ -192,6 +198,10 @@ fun detectPluginInstallDir(): File {
 
 tasks {
     wrapper {
+<<<<<<< HEAD
         gradleVersion = "8.13"
+=======
+        gradleVersion = "9.4.1"
+>>>>>>> b985fc7 (chore(deps): bump gradle-wrapper to 9.4.1 and intellij-platform plugin to 2.14.0)
     }
 }
