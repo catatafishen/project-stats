@@ -39,7 +39,8 @@ object StatsAggregator {
         var code: Long = 0,
         var complexity: Long = 0,
         var size: Long = 0,
-        var count: Long = 0
+        var count: Long = 0,
+        var commits: Long = 0,
     )
 
     private inline fun flatGroup(files: List<FileStat>, keyOf: (FileStat) -> String): List<StatGroup> {
@@ -52,9 +53,10 @@ object StatsAggregator {
             acc.complexity += f.complexity
             acc.size += f.sizeBytes
             acc.count += 1
+            acc.commits += f.commitCount
         }
         return byKey.entries.map { (k, v) ->
-            StatGroup(k, v.total, v.nonBlank, v.code, v.complexity, v.size, v.count)
+            StatGroup(k, v.total, v.nonBlank, v.code, v.complexity, v.size, v.count, v.commits)
         }.sortedByDescending { it.totalLines }
     }
 
@@ -72,6 +74,7 @@ object StatsAggregator {
             var complexity: Long = 0,
             var size: Long = 0,
             var count: Long = 0,
+            var commits: Long = 0,
             var isFile: Boolean = false,
         )
 
@@ -83,6 +86,7 @@ object StatsAggregator {
             root.total += f.totalLines; root.nonBlank += f.nonBlankLines
             root.code += f.codeLines; root.complexity += f.complexity
             root.size += f.sizeBytes; root.count += 1
+            root.commits += f.commitCount
             for ((idx, part) in parts.withIndex()) {
                 node = node.children.getOrPut(part) { Node(part) }
                 node.total += f.totalLines
@@ -91,13 +95,14 @@ object StatsAggregator {
                 node.complexity += f.complexity
                 node.size += f.sizeBytes
                 node.count += 1
+                node.commits += f.commitCount
                 if (idx == parts.lastIndex) node.isFile = true
             }
         }
 
         fun convert(n: Node): StatGroup {
             val kids = n.children.values.map { convert(it) }.sortedByDescending { it.totalLines }
-            return StatGroup(n.name, n.total, n.nonBlank, n.code, n.complexity, n.size, n.count, kids)
+            return StatGroup(n.name, n.total, n.nonBlank, n.code, n.complexity, n.size, n.count, n.commits, kids)
         }
         // Return the top-level children (under <project>); treemap presents them as roots.
         return convert(root).children

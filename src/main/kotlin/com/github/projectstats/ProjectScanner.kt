@@ -20,12 +20,19 @@ object ProjectScanner {
 
     fun scan(project: Project, indicator: ProgressIndicator?): ScanResult {
         val started = System.currentTimeMillis()
+
+        indicator?.text = "Reading git history"
+        val commitCounts: Map<String, Int> = GitCommitCountCalculator.compute(project, indicator)
+
+        indicator?.text = "Scanning project files"
+
         val files = ArrayList<FileStat>(4096)
         var totalLines = 0L
         var nonBlank = 0L
         var codeL = 0L
         var complexityTotal = 0L
         var size = 0L
+        var commitsTotal = 0L
 
         val rootManager = ProjectRootManager.getInstance(project)
         val fileIndex = rootManager.fileIndex
@@ -56,15 +63,18 @@ object ProjectScanner {
                     if (visited % 200 == 0) {
                         indicator?.text2 = "Scanning ${file.presentableUrl}"
                     }
-                    val stat = ReadAction.compute<FileStat?, RuntimeException> {
+                    val baseStat = ReadAction.compute<FileStat?, RuntimeException> {
                         classify(file, project, fileIndex, projectBase)
                     } ?: return true
+                    val stat = if (commitCounts.isEmpty()) baseStat
+                    else baseStat.copy(commitCount = commitCounts[file.path] ?: 0)
                     files += stat
                     totalLines += stat.totalLines
                     nonBlank += stat.nonBlankLines
                     codeL += stat.codeLines
                     complexityTotal += stat.complexity
                     size += stat.sizeBytes
+                    commitsTotal += stat.commitCount
                     return true
                 }
             })
@@ -78,6 +88,7 @@ object ProjectScanner {
             complexity = complexityTotal,
             sizeBytes = size,
             fileCount = files.size.toLong(),
+            commitCount = commitsTotal,
             scannedMillis = System.currentTimeMillis() - started,
         )
     }

@@ -284,4 +284,5 @@ fun format(metric: Metric, value: Long): String = when (metric) {
     Metric.LOC, Metric.NON_BLANK_LOC, Metric.CODE_LOC -> "%,d lines".format(value)
     Metric.COMPLEXITY -> "%,d".format(value)
     Metric.FILE_COUNT -> "%,d files".format(value)
+    Metric.COMMIT_COUNT -> "%,d commits".format(value)
 }
