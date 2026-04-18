@@ -37,6 +37,7 @@ import javax.swing.JTable
 import javax.swing.RowSorter
 import javax.swing.SortOrder
 import javax.swing.SwingConstants
+import javax.swing.event.ChangeEvent
 import javax.swing.table.AbstractTableModel
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.TableRowSorter
@@ -73,7 +74,16 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val tableModel = StatsTableModel()
     private val table = JBTable(tableModel)
     private val totalsModel = TotalsTableModel()
-    private val totalsTable = JBTable(totalsModel)
+    private val totalsTable = object : JBTable(totalsModel) {
+        // Overriding columnMarginChanged to skip revalidate() prevents a repaint feedback loop.
+        // The shared columnModel fires this on every column resize from the main table's viewport
+        // layout; the default resizeAndRepaint() calls revalidate() which propagates to the root
+        // pane and re-triggers JBScrollPane layout, which may resize the viewport again → loop.
+        override fun columnMarginChanged(e: ChangeEvent) {
+            if (isEditing) cellEditor?.cancelCellEditing()
+            repaint()
+        }
+    }
 
     private val treemapCard = JPanel(CardLayout())
     private val tableCard = JPanel(CardLayout())
