@@ -12,41 +12,22 @@ import com.intellij.ui.OnePixelSplitter
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.render.RenderingUtil
 import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
-import java.awt.BorderLayout
-import java.awt.CardLayout
-import java.awt.Color
-import java.awt.Component
-import java.awt.Cursor
-import java.awt.Dimension
-import java.awt.FlowLayout
-import java.awt.Font
-import java.awt.GridBagConstraints
-import java.awt.GridBagLayout
-import java.awt.Insets
+import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import javax.swing.BorderFactory
-import javax.swing.Box
-import javax.swing.JButton
-import javax.swing.JLabel
-import javax.swing.JPanel
-import javax.swing.JTable
-import javax.swing.RowSorter
-import javax.swing.SortOrder
-import javax.swing.SwingConstants
+import java.util.*
+import javax.swing.*
 import javax.swing.event.ChangeEvent
 import javax.swing.table.AbstractTableModel
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.TableRowSorter
-import java.util.Locale
 
 class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
 
-    private val groupByBox = ComboBox(GroupBy.values()).apply { selectedItem = GroupBy.LANGUAGE }
-    private val metricBox = ComboBox(Metric.values()).apply { selectedItem = Metric.LOC }
+    private val groupByBox = ComboBox(GroupBy.entries.toTypedArray()).apply { selectedItem = GroupBy.LANGUAGE }
+    private val metricBox = ComboBox(Metric.entries.toTypedArray()).apply { selectedItem = Metric.LOC }
     private val includeTests = JBCheckBox("Tests", true)
     private val includeGenerated = JBCheckBox("Generated", false)
     private val includeResources = JBCheckBox("Resources", true)
@@ -184,7 +165,7 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
                 gridx = 0
                 gridy = GridBagConstraints.RELATIVE
                 anchor = GridBagConstraints.CENTER
-                insets = Insets(5, 0, 5, 0)
+                insets = JBUI.insets(5, 0)
             }
             val titleLabel = JBLabel("No stats yet").apply {
                 font = font.deriveFont(Font.BOLD, 16f)
@@ -211,34 +192,9 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         table.autoCreateRowSorter = false
         val sorter = TableRowSorter(tableModel)
         table.rowSorter = sorter
-        sorter.sortKeys = listOf(RowSorter.SortKey(2, SortOrder.DESCENDING))
-        // Disable hover-row repainting: DarculaTableUI repaints two rows on every
-        // mouseMoved event (old hover row + new hover row), which adds up to ~30 full-table
-        // repaints per second while the mouse is over the window.
-        table.putClientProperty(RenderingUtil.PAINT_HOVERED_BACKGROUND, false)
-        // Disable the expandable-items popup handler: it calls getTableCellRendererComponent()
-        // outside the CellRendererPane context on every mouse move, which bypasses the
-        // CellRendererPane.repaint() no-op guard and fires extra repaints.
-        table.setExpandableItemsEnabled(false)
-        val formatCell: (Int, Any?) -> String = { modelColumn, value ->
-            when (modelColumn) {
-                1, 2, 3, 4, 5, 6, 9 -> compactCount((value as? Number)?.toLong() ?: 0L)
-                7 -> humanBytes((value as? Number)?.toLong() ?: 0L)
-                8 -> String.format(Locale.US, "%.1f%%", (value as? Number)?.toDouble() ?: 0.0)
-                else -> value?.toString().orEmpty()
-            }
-        }
-        val renderer = object : DefaultTableCellRenderer() {
-            override fun getTableCellRendererComponent(
-                table: JTable, value: Any?, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int
-            ): Component {
-                val c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
-                horizontalAlignment = if (column == 0) SwingConstants.LEFT else SwingConstants.RIGHT
-                text = formatCell(table.convertColumnIndexToModel(column), value)
-                return c
-            }
-        }
-        table.setDefaultRenderer(java.lang.Number::class.java, renderer)
+        sorter.sortKeys = listOf(RowSorter.SortKey(COL_LOC, SortOrder.DESCENDING))
+        val renderer = statsCellRenderer(boldFont = null)
+        table.setDefaultRenderer(Number::class.java, renderer)
         table.setDefaultRenderer(Any::class.java, renderer)
     }
 
@@ -248,35 +204,37 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         totalsTable.intercellSpacing = Dimension(0, 0)
         totalsTable.isFocusable = false
         totalsTable.rowSelectionAllowed = false
-        totalsTable.putClientProperty(RenderingUtil.PAINT_HOVERED_BACKGROUND, false)
-        totalsTable.setExpandableItemsEnabled(false)
         totalsTable.columnModel = table.columnModel
         totalsTable.rowHeight = table.rowHeight + 2
-        totalsTable.border = BorderFactory.createMatteBorder(
-            2, 0, 0, 0, JBColor.border(),
-        )
-        val boldFont = totalsTable.font.deriveFont(Font.BOLD)
-        val formatCell: (Int, Any?) -> String = { modelColumn, value ->
-            when (modelColumn) {
-                1, 2, 3, 4, 5, 6, 9 -> compactCount((value as? Number)?.toLong() ?: 0L)
-                7 -> humanBytes((value as? Number)?.toLong() ?: 0L)
-                8 -> String.format(Locale.US, "%.1f%%", (value as? Number)?.toDouble() ?: 0.0)
-                else -> value?.toString().orEmpty()
-            }
-        }
-        val renderer = object : DefaultTableCellRenderer() {
+        totalsTable.border = BorderFactory.createMatteBorder(2, 0, 0, 0, JBColor.border())
+        val renderer = statsCellRenderer(boldFont = totalsTable.font.deriveFont(Font.BOLD))
+        totalsTable.setDefaultRenderer(Number::class.java, renderer)
+        totalsTable.setDefaultRenderer(Any::class.java, renderer)
+    }
+
+    /** Shared renderer used by both the data table and the bold totals row. */
+    private fun statsCellRenderer(boldFont: Font?): DefaultTableCellRenderer =
+        object : DefaultTableCellRenderer() {
             override fun getTableCellRendererComponent(
-                table: JTable, value: Any?, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int
+                table: JTable, value: Any?, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int,
             ): Component {
-                val c = super.getTableCellRendererComponent(table, value, false, false, row, column)
-                font = boldFont
-                horizontalAlignment = if (column == 0) SwingConstants.LEFT else SwingConstants.RIGHT
-                text = formatCell(table.convertColumnIndexToModel(column), value)
+                val selected = boldFont == null && isSelected
+                val focused = boldFont == null && hasFocus
+                val c = super.getTableCellRendererComponent(table, value, selected, focused, row, column)
+                if (boldFont != null) font = boldFont
+                horizontalAlignment = if (column == 0) LEFT else RIGHT
+                text = formatStatsCell(table.convertColumnIndexToModel(column), value)
                 return c
             }
         }
-        totalsTable.setDefaultRenderer(java.lang.Number::class.java, renderer)
-        totalsTable.setDefaultRenderer(Any::class.java, renderer)
+
+    private fun formatStatsCell(modelColumn: Int, value: Any?): String = when (modelColumn) {
+        COL_FILES, COL_LOC, COL_NON_BLANK, COL_CODE_LOC, COL_COMPLEXITY, COL_COMMITS, COL_CHILDREN ->
+            compactCount((value as? Number)?.toLong() ?: 0L)
+
+        COL_SIZE -> humanBytes((value as? Number)?.toLong() ?: 0L)
+        COL_PERCENT -> String.format(Locale.US, "%.1f%%", (value as? Number)?.toDouble() ?: 0.0)
+        else -> value?.toString().orEmpty()
     }
 
     private fun kpiLabel(): JBLabel = JBLabel("–").apply {
@@ -371,10 +329,6 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         applyDrill(null)
     }
 
-    /**
-     * Sync table, stacked bar, and footer KPIs with the treemap's current drill level.
-     * `drilled == null` means root level (top-level aggregated groups).
-     */
     private fun applyDrill(drilled: StatGroup?) {
         val result = scanResult ?: return
         val metric = metricBox.selectedItem as Metric
@@ -385,20 +339,9 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         // the header — repaint explicitly so column 8 ("% of <Metric>") stays current.
         table.tableHeader?.repaint()
 
-        val scopeFiles = drilled?.fileCount ?: result.fileCount
-        val scopeTotal = drilled?.totalLines ?: result.totalLines
-        val scopeNonBlank = drilled?.nonBlankLines ?: result.nonBlankLines
-        val scopeCode = drilled?.codeLines ?: result.codeLines
-        val scopeCplx = drilled?.complexity ?: result.complexity
-        val scopeSize = drilled?.sizeBytes ?: result.sizeBytes
-        val scopeCommits = drilled?.commitCount ?: result.commitCount
-
         setKpis(result.fileCount, result.totalLines, result.sizeBytes, result.scannedMillis)
-        val scopeLabel = drilled?.key ?: "Total"
-        totalsModel.update(
-            scopeLabel,
-            scopeFiles, scopeTotal, scopeNonBlank, scopeCode, scopeCplx, scopeCommits, scopeSize,
-        )
+        val scope = drilled ?: result.asStatGroup("Total")
+        totalsModel.update(drilled?.key ?: "Total", scope)
         updateBreadcrumbs()
     }
 
@@ -456,6 +399,20 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 }
 
+// Stats-table model column indexes (0..9). Shared by StatsTableModel and TotalsTableModel
+// so renderer/formatter code doesn't duplicate the layout knowledge.
+private const val COL_NAME = 0
+private const val COL_FILES = 1
+private const val COL_LOC = 2
+private const val COL_NON_BLANK = 3
+private const val COL_CODE_LOC = 4
+private const val COL_COMPLEXITY = 5
+private const val COL_COMMITS = 6
+private const val COL_SIZE = 7
+private const val COL_PERCENT = 8
+private const val COL_CHILDREN = 9
+private const val STATS_COLUMN_COUNT = 10
+
 private class StatsTableModel : AbstractTableModel() {
     private var rows: List<StatGroup> = emptyList()
     private var total: Long = 0
@@ -465,49 +422,48 @@ private class StatsTableModel : AbstractTableModel() {
         this.rows = groups
         this.metric = metric
         this.total = groups.sumOf { it.value(metric) }
-        // Use fireTableDataChanged() — not fireTableStructureChanged() — to avoid
-        // triggering createDefaultColumnsFromModel() on the shared TableColumnModel,
-        // which would cascade into 40+ revalidate()+repaint() calls on both tables.
-        // Column structure never changes (always 10 columns); only data changes.
+        // fireTableDataChanged — not fireTableStructureChanged — so the shared TableColumnModel
+        // is preserved (structure never changes; always STATS_COLUMN_COUNT columns).
         fireTableDataChanged()
     }
 
     override fun getRowCount(): Int = rows.size
-    override fun getColumnCount(): Int = 10
+    override fun getColumnCount(): Int = STATS_COLUMN_COUNT
     override fun getColumnName(column: Int): String = when (column) {
-        0 -> "Name"
-        1 -> "Files"
-        2 -> "LOC"
-        3 -> "Non-blank"
-        4 -> "Code LOC"
-        5 -> "Complexity"
-        6 -> "Commits"
-        7 -> "Size"
-        8 -> "% of ${metric.display}"
-        9 -> "Children"
+        COL_NAME -> "Name"
+        COL_FILES -> "Files"
+        COL_LOC -> "LOC"
+        COL_NON_BLANK -> "Non-blank"
+        COL_CODE_LOC -> "Code LOC"
+        COL_COMPLEXITY -> "Complexity"
+        COL_COMMITS -> "Commits"
+        COL_SIZE -> "Size"
+        COL_PERCENT -> "% of ${metric.display}"
+        COL_CHILDREN -> "Children"
         else -> ""
     }
 
     override fun getColumnClass(columnIndex: Int): Class<*> = when (columnIndex) {
-        1, 2, 3, 4, 5, 6, 9 -> java.lang.Long::class.java
-        7 -> java.lang.Long::class.java
-        8 -> java.lang.Double::class.java
+        COL_FILES, COL_LOC, COL_NON_BLANK, COL_CODE_LOC,
+        COL_COMPLEXITY, COL_COMMITS, COL_SIZE, COL_CHILDREN -> Long::class.javaObjectType
+
+        COL_PERCENT -> Double::class.javaObjectType
         else -> String::class.java
     }
 
     override fun getValueAt(rowIndex: Int, columnIndex: Int): Any {
         val r = rows[rowIndex]
         return when (columnIndex) {
-            0 -> r.key
-            1 -> r.fileCount
-            2 -> r.totalLines
-            3 -> r.nonBlankLines
-            4 -> r.codeLines
-            5 -> r.complexity
-            6 -> r.commitCount
-            7 -> r.sizeBytes
-            8 -> if (total > 0) 100.0 * r.value(metric) / total else 0.0
-            9 -> r.children.size.toLong()
+            COL_NAME -> r.key
+            COL_FILES -> r.fileCount
+            COL_LOC -> r.totalLines
+            COL_NON_BLANK -> r.nonBlankLines
+            COL_CODE_LOC -> r.codeLines
+            COL_COMPLEXITY -> r.complexity
+            COL_COMMITS -> r.commitCount
+            COL_SIZE -> r.sizeBytes
+            COL_PERCENT -> if (total > 0) 100.0 * r.value(metric) / total else 0.0
+            COL_CHILDREN -> r.children.size.toLong()
             else -> ""
         }
     }
@@ -515,71 +471,55 @@ private class StatsTableModel : AbstractTableModel() {
 
 private class TotalsTableModel : AbstractTableModel() {
     private var label: String = "Total"
-    private var files: Long = 0
-    private var loc: Long = 0
-    private var nonBlank: Long = 0
-    private var code: Long = 0
-    private var complexity: Long = 0
-    private var commits: Long = 0
-    private var size: Long = 0
-    private var hasData: Boolean = false
+    private var totals: StatGroup? = null
 
-    fun update(
-        label: String,
-        files: Long,
-        loc: Long,
-        nonBlank: Long,
-        code: Long,
-        complexity: Long,
-        commits: Long,
-        size: Long
-    ) {
+    fun update(label: String, totals: StatGroup) {
         this.label = label
-        this.files = files
-        this.loc = loc
-        this.nonBlank = nonBlank
-        this.code = code
-        this.complexity = complexity
-        this.commits = commits
-        this.size = size
-        this.hasData = true
+        this.totals = totals
         fireTableDataChanged()
     }
 
     fun clear() {
-        hasData = false
+        totals = null
         fireTableDataChanged()
     }
 
-    override fun getRowCount(): Int = if (hasData) 1 else 0
-    override fun getColumnCount(): Int = 10
+    override fun getRowCount(): Int = if (totals != null) 1 else 0
+    override fun getColumnCount(): Int = STATS_COLUMN_COUNT
     override fun getColumnClass(columnIndex: Int): Class<*> = when (columnIndex) {
-        1, 2, 3, 4, 5, 6, 7, 9 -> java.lang.Long::class.java
-        8 -> java.lang.Double::class.java
+        COL_FILES, COL_LOC, COL_NON_BLANK, COL_CODE_LOC,
+        COL_COMPLEXITY, COL_COMMITS, COL_SIZE, COL_CHILDREN -> Long::class.javaObjectType
+
+        COL_PERCENT -> Double::class.javaObjectType
         else -> String::class.java
     }
 
-    override fun getValueAt(rowIndex: Int, columnIndex: Int): Any = when (columnIndex) {
-        0 -> "Σ  $label"
-        1 -> files
-        2 -> loc
-        3 -> nonBlank
-        4 -> code
-        5 -> complexity
-        6 -> commits
-        7 -> size
-        8 -> 100.0
-        9 -> ""
-        else -> ""
+    override fun getValueAt(rowIndex: Int, columnIndex: Int): Any {
+        val t = totals ?: return ""
+        return when (columnIndex) {
+            COL_NAME -> "Σ  $label"
+            COL_FILES -> t.fileCount
+            COL_LOC -> t.totalLines
+            COL_NON_BLANK -> t.nonBlankLines
+            COL_CODE_LOC -> t.codeLines
+            COL_COMPLEXITY -> t.complexity
+            COL_COMMITS -> t.commitCount
+            COL_SIZE -> t.sizeBytes
+            COL_PERCENT -> 100.0
+            else -> ""
+        }
     }
 }
+
+/** Synthesize a root-level [StatGroup] from a [ScanResult] — used by the totals row at drill-depth 0. */
+private fun ScanResult.asStatGroup(label: String): StatGroup =
+    StatGroup(label, totalLines, nonBlankLines, codeLines, complexity, sizeBytes, fileCount, commitCount)
 
 fun compactCount(value: Long): String {
     val abs = kotlin.math.abs(value.toDouble())
     if (abs < 1000.0) return value.toString()
-
     val units = arrayOf("K", "M", "B", "T")
-    var scaled = abs
+    var scaled = abs / 1000.0
     var unitIndex = 0
     while (scaled >= 1000.0 && unitIndex < units.lastIndex) {
         scaled /= 1000.0

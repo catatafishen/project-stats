@@ -1,5 +1,6 @@
 package com.github.projectstats
 
+import com.intellij.ui.Gray
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import java.awt.*
@@ -200,19 +201,7 @@ class TreemapPanel : JPanel() {
             g2.fill(rect)
             g2.color = JBColor.border()
             g2.draw(rect)
-            // label
-            if (rect.width > 40 && rect.height > 18) {
-                g2.color = contrastingText(color)
-                val fm = g2.fontMetrics
-                val label = grp.key
-                val maxChars = (rect.width / (fm.charWidth('M').coerceAtLeast(1))).toInt().coerceAtLeast(3)
-                val trimmed = if (label.length > maxChars) label.substring(0, maxChars - 1) + "…" else label
-                g2.drawString(trimmed, (rect.x + 4).toInt(), (rect.y + fm.ascent + 2).toInt())
-                if (rect.height > 34) {
-                    val sub = format(metric, grp.value(metric))
-                    g2.drawString(sub, (rect.x + 4).toInt(), (rect.y + fm.ascent * 2 + 4).toInt())
-                }
-            }
+            drawCellLabel(g2, rect, grp, color)
         }
 
         // In-treemap breadcrumb (double-click modes only — directory mode shows a toolbar breadcrumb).
@@ -220,6 +209,18 @@ class TreemapPanel : JPanel() {
             val crumb = "▲ ${currentPath()}  (right-click or double-click a leaf to go back)"
             g2.color = JBColor.foreground()
             g2.drawString(crumb, 6, height - 6)
+        }
+    }
+
+    private fun drawCellLabel(g2: Graphics2D, rect: Rectangle2D.Double, grp: StatGroup, fill: Color) {
+        if (rect.width <= 40 || rect.height <= 18) return
+        g2.color = contrastingText(fill)
+        val fm = g2.fontMetrics
+        val maxChars = (rect.width / (fm.charWidth('M').coerceAtLeast(1))).toInt().coerceAtLeast(3)
+        val trimmed = if (grp.key.length > maxChars) grp.key.substring(0, maxChars - 1) + "…" else grp.key
+        g2.drawString(trimmed, (rect.x + 4).toInt(), (rect.y + fm.ascent + 2).toInt())
+        if (rect.height > 34) {
+            g2.drawString(format(metric, grp.value(metric)), (rect.x + 4).toInt(), (rect.y + fm.ascent * 2 + 4).toInt())
         }
     }
 
@@ -236,34 +237,38 @@ class TreemapPanel : JPanel() {
         var remainingTotal = total
         while (remaining.isNotEmpty()) {
             val shorter = minOf(rect.width, rect.height)
-            val row = ArrayList<StatGroup>()
-            var rowSum = 0.0
-            var bestRatio = Double.MAX_VALUE
-            var idx = 0
-            while (idx < remaining.size) {
-                val candidate = remaining[idx]
-                val cVal = candidate.value(metric).toDouble()
-                if (cVal <= 0) {
-                    idx++; continue
-                }
-                val newSum = rowSum + cVal
-                val ratio = worstRatio(row + candidate, newSum, shorter, rect, remainingTotal)
-                if (row.isEmpty() || ratio <= bestRatio) {
-                    row += candidate
-                    rowSum = newSum
-                    bestRatio = ratio
-                    idx++
-                } else {
-                    break
-                }
-            }
+            val row = buildNextRow(remaining, shorter, rect, remainingTotal)
             if (row.isEmpty()) break
+            val rowSum = row.sumOf { it.value(metric).toDouble() }
             val used = layoutRow(row, rowSum, rect, remainingTotal, shorter == rect.width, out)
             rect = used.second
             remainingTotal -= rowSum
             remaining = remaining.subList(row.size.coerceAtMost(remaining.size), remaining.size)
             if (rect.width < 1 || rect.height < 1) break
         }
+    }
+
+    /** Greedily accumulate items into a squarified row while the worst aspect ratio keeps improving. */
+    private fun buildNextRow(
+        remaining: List<StatGroup>,
+        shorter: Double,
+        rect: Rectangle2D.Double,
+        remainingTotal: Double,
+    ): List<StatGroup> {
+        val row = ArrayList<StatGroup>()
+        var rowSum = 0.0
+        var bestRatio = Double.MAX_VALUE
+        for (candidate in remaining) {
+            val cVal = candidate.value(metric).toDouble()
+            if (cVal <= 0) continue
+            val newSum = rowSum + cVal
+            val ratio = worstRatio(row + candidate, newSum, shorter, rect, remainingTotal)
+            if (row.isNotEmpty() && ratio > bestRatio) break
+            row += candidate
+            rowSum = newSum
+            bestRatio = ratio
+        }
+        return row
     }
 
     private fun worstRatio(
@@ -324,7 +329,7 @@ class TreemapPanel : JPanel() {
 fun hashColor(key: String): Color {
     // Golden-ratio hue hash for visually distinct, stable colors.
     val h = (key.hashCode().toLong() and 0xFFFFFFFFL)
-    val hue = ((h % 1000) / 1000f + 0.61803398875f) % 1f
+    val hue = ((h % 1000) / 1000f + 0.618034f) % 1f
     val sat = 0.55f
     val bri = if (JBColor.isBright()) 0.85f else 0.70f
     return Color.getHSBColor(hue, sat, bri)
@@ -332,7 +337,7 @@ fun hashColor(key: String): Color {
 
 fun contrastingText(bg: Color): Color {
     val luminance = (0.299 * bg.red + 0.587 * bg.green + 0.114 * bg.blue) / 255.0
-    return if (luminance > 0.6) Color(30, 30, 30) else Color(240, 240, 240)
+    return if (luminance > 0.6) Gray._30 else Gray._240
 }
 
 fun humanBytes(b: Long): String {

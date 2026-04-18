@@ -3,11 +3,9 @@ package com.github.projectstats
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import java.awt.Color
-import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.RenderingHints
-import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.geom.Rectangle2D
 import javax.swing.JPanel
@@ -25,7 +23,6 @@ class StackedBarPanel : JPanel() {
         preferredSize = JBUI.size(400, 18)
         minimumSize = JBUI.size(200, 14)
         toolTipText = ""
-        addMouseListener(object : MouseAdapter() {})
     }
 
     fun setData(groups: List<StatGroup>, metric: Metric, colorFn: (StatGroup) -> Color) {
@@ -51,7 +48,9 @@ class StackedBarPanel : JPanel() {
         val h = height.toDouble()
         val data = groups.filter { it.value(metric) > 0 }.sortedByDescending { it.value(metric) }
         val total = data.sumOf { it.value(metric).toDouble() }
-        if (total <= 0 || w < 2) { rects = emptyList(); return }
+        if (total <= 0 || w < 2) {
+            rects = emptyList(); return
+        }
 
         val placed = ArrayList<Pair<Rectangle2D.Double, StatGroup>>()
         var x = 0.0
