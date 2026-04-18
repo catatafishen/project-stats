@@ -12,6 +12,7 @@ import com.intellij.ui.OnePixelSplitter
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.render.RenderingUtil
 import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
@@ -201,6 +202,14 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         val sorter = TableRowSorter(tableModel)
         table.rowSorter = sorter
         sorter.sortKeys = listOf(RowSorter.SortKey(2, SortOrder.DESCENDING))
+        // Disable hover-row repainting: DarculaTableUI repaints two rows on every
+        // mouseMoved event (old hover row + new hover row), which adds up to ~30 full-table
+        // repaints per second while the mouse is over the window.
+        table.putClientProperty(RenderingUtil.PAINT_HOVERED_BACKGROUND, false)
+        // Disable the expandable-items popup handler: it calls getTableCellRendererComponent()
+        // outside the CellRendererPane context on every mouse move, which bypasses the
+        // CellRendererPane.repaint() no-op guard and fires extra repaints.
+        table.setExpandableItemsEnabled(false)
         val formatCell: (Int, Any?) -> String = { modelColumn, value ->
             when (modelColumn) {
                 1, 2, 3, 4, 5, 6, 9 -> compactCount((value as? Number)?.toLong() ?: 0L)
@@ -229,6 +238,8 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         totalsTable.intercellSpacing = Dimension(0, 0)
         totalsTable.isFocusable = false
         totalsTable.rowSelectionAllowed = false
+        totalsTable.putClientProperty(RenderingUtil.PAINT_HOVERED_BACKGROUND, false)
+        totalsTable.setExpandableItemsEnabled(false)
         totalsTable.columnModel = table.columnModel
         totalsTable.rowHeight = table.rowHeight + 2
         totalsTable.border = BorderFactory.createMatteBorder(
