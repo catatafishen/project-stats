@@ -39,6 +39,7 @@ import javax.swing.SwingConstants
 import javax.swing.table.AbstractTableModel
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.TableRowSorter
+import java.util.Locale
 
 class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
 
@@ -200,15 +201,26 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         val sorter = TableRowSorter(tableModel)
         table.rowSorter = sorter
         sorter.sortKeys = listOf(RowSorter.SortKey(2, SortOrder.DESCENDING))
-        table.setDefaultRenderer(Any::class.java, object : DefaultTableCellRenderer() {
+        val formatCell: (Int, Any?) -> String = { modelColumn, value ->
+            when (modelColumn) {
+                1, 2, 3, 4, 5, 6, 9 -> compactCount((value as? Number)?.toLong() ?: 0L)
+                7 -> humanBytes((value as? Number)?.toLong() ?: 0L)
+                8 -> String.format(Locale.US, "%.1f%%", (value as? Number)?.toDouble() ?: 0.0)
+                else -> value?.toString().orEmpty()
+            }
+        }
+        val renderer = object : DefaultTableCellRenderer() {
             override fun getTableCellRendererComponent(
                 table: JTable, value: Any?, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int
             ): Component {
                 val c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
                 horizontalAlignment = if (column == 0) SwingConstants.LEFT else SwingConstants.RIGHT
+                text = formatCell(table.convertColumnIndexToModel(column), value)
                 return c
             }
-        })
+        }
+        table.setDefaultRenderer(java.lang.Number::class.java, renderer)
+        table.setDefaultRenderer(Any::class.java, renderer)
     }
 
     private fun configureTotalsTable() {
@@ -223,16 +235,27 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
             2, 0, 0, 0, JBColor.border(),
         )
         val boldFont = totalsTable.font.deriveFont(Font.BOLD)
-        totalsTable.setDefaultRenderer(Any::class.java, object : DefaultTableCellRenderer() {
+        val formatCell: (Int, Any?) -> String = { modelColumn, value ->
+            when (modelColumn) {
+                1, 2, 3, 4, 5, 6, 9 -> compactCount((value as? Number)?.toLong() ?: 0L)
+                7 -> humanBytes((value as? Number)?.toLong() ?: 0L)
+                8 -> String.format(Locale.US, "%.1f%%", (value as? Number)?.toDouble() ?: 0.0)
+                else -> value?.toString().orEmpty()
+            }
+        }
+        val renderer = object : DefaultTableCellRenderer() {
             override fun getTableCellRendererComponent(
                 table: JTable, value: Any?, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int
             ): Component {
                 val c = super.getTableCellRendererComponent(table, value, false, false, row, column)
                 font = boldFont
                 horizontalAlignment = if (column == 0) SwingConstants.LEFT else SwingConstants.RIGHT
+                text = formatCell(table.convertColumnIndexToModel(column), value)
                 return c
             }
-        })
+        }
+        totalsTable.setDefaultRenderer(java.lang.Number::class.java, renderer)
+        totalsTable.setDefaultRenderer(Any::class.java, renderer)
     }
 
     private fun kpiLabel(): JBLabel = JBLabel("–").apply {
@@ -473,7 +496,16 @@ private class TotalsTableModel : AbstractTableModel() {
     private var size: Long = 0
     private var hasData: Boolean = false
 
-    fun update(label: String, files: Long, loc: Long, nonBlank: Long, code: Long, complexity: Long, commits: Long, size: Long) {
+    fun update(
+        label: String,
+        files: Long,
+        loc: Long,
+        nonBlank: Long,
+        code: Long,
+        complexity: Long,
+        commits: Long,
+        size: Long
+    ) {
         this.label = label
         this.files = files
         this.loc = loc
@@ -512,4 +544,19 @@ private class TotalsTableModel : AbstractTableModel() {
         9 -> ""
         else -> ""
     }
+}
+
+fun compactCount(value: Long): String {
+    val abs = kotlin.math.abs(value.toDouble())
+    if (abs < 1000.0) return value.toString()
+
+    val units = arrayOf("K", "M", "B", "T")
+    var scaled = abs
+    var unitIndex = 0
+    while (scaled >= 1000.0 && unitIndex < units.lastIndex) {
+        scaled /= 1000.0
+        unitIndex++
+    }
+    val prefix = if (value < 0) "-" else ""
+    return prefix + String.format(Locale.US, "%.1f%s", scaled, units[unitIndex])
 }

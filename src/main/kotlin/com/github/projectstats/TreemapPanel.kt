@@ -13,6 +13,7 @@ import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.event.MouseMotionAdapter
 import java.awt.geom.Rectangle2D
+import java.util.Locale
 import javax.swing.JPanel
 
 /**
@@ -34,6 +35,11 @@ class TreemapPanel : JPanel() {
     private var colorFor: (StatGroup) -> Color = { hashColor(it.key) }
     private var onDrillChanged: ((StatGroup?) -> Unit)? = null
     private var singleClickDrill: Boolean = false
+
+    // Layout cache — squarify is O(n²) and must not run on every repaint.
+    private var layoutDirty: Boolean = true
+    private var layoutW: Double = -1.0
+    private var layoutH: Double = -1.0
 
     init {
         background = JBColor.background()
@@ -74,6 +80,7 @@ class TreemapPanel : JPanel() {
         this.metric = metric
         this.colorFor = colorFn
         this.drillStack.clear()
+        layoutDirty = true
         repaint()
     }
 
@@ -99,6 +106,7 @@ class TreemapPanel : JPanel() {
     fun popToDepth(keep: Int) {
         if (keep < 0 || keep >= drillStack.size) return
         while (drillStack.size > keep) drillStack.removeLast()
+        layoutDirty = true
         repaint()
         onDrillChanged?.invoke(currentDrilledGroup())
     }
@@ -106,6 +114,7 @@ class TreemapPanel : JPanel() {
     fun popDrill(): Boolean {
         if (drillStack.isEmpty()) return false
         drillStack.removeLast()
+        layoutDirty = true
         repaint()
         onDrillChanged?.invoke(currentDrilledGroup())
         return true
@@ -122,6 +131,7 @@ class TreemapPanel : JPanel() {
             chain.add(current)
         }
         drillStack.addLast(DrillStep(chain))
+        layoutDirty = true
         repaint()
         onDrillChanged?.invoke(current)
     }
@@ -158,12 +168,18 @@ class TreemapPanel : JPanel() {
             return
         }
 
-        val total = data.sumOf { it.value(metric).toDouble() }
-        val placed = ArrayList<Pair<Rectangle2D.Double, StatGroup>>(data.size)
-        squarify(data, total, Rectangle2D.Double(0.0, 0.0, w, h), placed)
-        rects = placed
+        // Recompute the squarified layout only when data or size has changed.
+        if (layoutDirty || w != layoutW || h != layoutH) {
+            val total = data.sumOf { it.value(metric).toDouble() }
+            val placed = ArrayList<Pair<Rectangle2D.Double, StatGroup>>(data.size)
+            squarify(data, total, Rectangle2D.Double(0.0, 0.0, w, h), placed)
+            rects = placed
+            layoutW = w
+            layoutH = h
+            layoutDirty = false
+        }
 
-        for ((rect, grp) in placed) {
+        for ((rect, grp) in rects) {
             val color = colorFor(grp)
             g2.color = color
             g2.fill(rect)
@@ -312,7 +328,7 @@ fun humanBytes(b: Long): String {
     while (v >= 1024 && i < units.lastIndex) {
         v /= 1024; i++
     }
-    return "%.1f %s".format(v, units[i])
+    return String.format(Locale.US, "%.1f %s", v, units[i])
 }
 
 fun format(metric: Metric, value: Long): String = when (metric) {
