@@ -6,75 +6,86 @@
 [![codecov](https://codecov.io/gh/catatafishen/project-stats/branch/master/graph/badge.svg)](https://codecov.io/gh/catatafishen/project-stats)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-A JetBrains plugin that visualizes where your project's source code size comes from.
+A JetBrains plugin that visualizes where your project's source code comes from — broken down by language, module,
+category, or directory, with multiple metrics and interactive visualizations.
+
+![Project Stats screenshot](img.png)
 
 ## Features
 
-- **Tool window** "Project Stats" on the right-hand side.
-- **Group by** one of:
-    - Language (by IntelliJ file type: Kotlin, Java, TypeScript, …)
-    - Module
-    - Source category (Sources, Tests, Resources, Test Resources, Generated, Other)
-    - Directory tree (drill-down via double-click)
-- **Metric** selector: Total LOC, Non-blank LOC, File size, File count.
-- **Filters**: include/exclude tests, resources, generated sources, or “other”.
-- **Visualizations**:
-    - GitHub-style stacked bar (percent per bucket).
-    - Squarified treemap with stable colors, tooltips, and drill-down.
-    - Sortable table with files / LOC / non-blank / size / percent / children.
-- **Background scanning** with progress, cancellation, and large-file guard (≤ 4 MiB per file for LOC counting).
+### Groupings
 
-Uses IntelliJ's `ProjectFileIndex`, `GeneratedSourcesFilter`, and JPS `JavaSourceRootType` to get authoritative
-categorization, and `VirtualFile` charsets for accurate line counts.
+Choose how to slice your project in the **Group by** dropdown:
 
-## Build
+| Option | Description |
+|---|---|
+| **Language** | Groups files by IntelliJ file type (Kotlin, Java, TypeScript, XML, …) |
+| **Module** | Groups by IntelliJ module |
+| **Source category** | Groups by classification: Sources, Tests, Resources, Test Resources, Generated, Other |
+| **Directory tree** | Hierarchical drill-down — double-click a tile or row to go deeper, breadcrumb to navigate back |
 
-Requires JDK 17+.
+### Metrics
 
-```bash
-./gradlew buildPlugin
-```
+Select what value is measured and visualized in the **Metric** dropdown:
 
-The installable zip lands in `build/distributions/`.
+| Metric | Description |
+|---|---|
+| **Total LOC** | All lines including blank lines and comments |
+| **Non-blank LOC** | Lines that contain at least one non-whitespace character |
+| **Code LOC** | Non-blank, non-comment lines |
+| **Complexity** | Cyclomatic complexity (branching statements) |
+| **File size** | Raw file size in bytes (displayed as B / KB / MB / GB) |
+| **File count** | Number of files |
+| **Commits** | Number of git commits touching each file |
 
-To run an IDE sandbox with the plugin loaded:
+### Filters
 
-```bash
-./gradlew runIde
-```
+Toggle which file categories are included via the **Include** checkboxes in the toolbar:
 
-## Layout
+| Filter | Default | What it controls |
+|---|---|---|
+| **Tests** | ✅ on | Test source roots (JUnit, pytest, etc.) |
+| **Resources** | ✅ on | Resource and test-resource roots |
+| **Generated** | ☑ off | Files under generated source roots |
+| **Other** | ✅ on | Files not matched by any other category |
 
-```
-src/main/kotlin/com/github/projectstats/
-  Model.kt                 # FileStat, StatGroup, Metric, GroupBy, ScanResult
-  ProjectScanner.kt        # Walks the project, classifies & counts lines
-  StatsAggregator.kt       # Groups FileStats by the chosen dimension
-  TreemapPanel.kt          # Squarified treemap (custom Swing)
-  StackedBarPanel.kt       # GitHub-style percentage bar
-  ProjectStatsPanel.kt     # Tool window UI: toolbar, bar, treemap, table
-  ProjectStatsToolWindowFactory.kt
-src/main/resources/META-INF/plugin.xml
-```
+Filters apply instantly — no re-scan needed.
+
+### Visualizations
+
+All three views update simultaneously when you change grouping, metric, or filters:
+
+- **Stacked bar** — GitHub-style proportional bar showing the percentage share of each bucket at a glance.
+- **Treemap** — Squarified treemap with stable per-language colors, value tooltips, and drill-down support
+  (double-click to enter, breadcrumb or back button to exit). Layout is cached; only recomputed on data or size change.
+- **Sortable table** — Shows each bucket's name, file count, Total LOC, Non-blank LOC, Code LOC, file size, share %,
+  and child count. Click any column header to sort. Large numbers are displayed compactly (e.g. `32.9K`).
+  Sorting uses the raw numeric value, so ordering is always correct.
+
+### Summary KPIs
+
+The footer always shows totals for the current filter state:
+
+- **Files** — total file count
+- **LOC** — total line count
+- **Size** — total size (auto-scaled to B / KB / MB / GB)
+- **Scan** — time taken for the last scan
+
+### Scanning
+
+- Runs in the background with a progress indicator and a cancel button.
+- Large-file guard: files over 4 MiB are counted by size only (no LOC counting).
+- Uses IntelliJ's `ProjectFileIndex`, `GeneratedSourcesFilter`, and JPS `JavaSourceRootType` for authoritative
+  source-root classification, and `VirtualFile` charsets for accurate line counts.
+- Git commit counts are read from `git log --follow` per file when git is available.
+
+## Build & contributing
+
+See [BUILDING.md](BUILDING.md).
 
 ## Releases & security
 
-- **CI** (`.github/workflows/ci.yml`) — builds, tests, runs `verifyPlugin` against marketplace-recommended IDE versions,
-  and uploads coverage to Codecov.
-- **Release** (`.github/workflows/release.yml`) — on every push to `master`, derives the next semver bump from
-  conventional-commit messages, builds the plugin ZIP with the version + generated changelog injected, signs it with *
-  *cosign** (keyless), produces a SLSA-style **build provenance attestation**, and creates a GitHub release.
-- **Publish to JetBrains Marketplace** (`.github/workflows/publish-marketplace.yml`) — manual `workflow_dispatch`.
-  Downloads the chosen release's signed ZIP, previews the changelog, then waits for `marketplace` environment approval
-  before uploading via the Marketplace API.
-- **CodeQL**, **OpenSSF Scorecard**, **Zizmor** — security scanning for code, repo configuration, and workflow
-  definitions.
-
-Required secrets / settings:
-
-- `secrets.JETBRAINS_MARKETPLACE_TOKEN` — needed by the publish workflow (set on the `marketplace` environment).
-- `secrets.CODECOV_TOKEN` — optional; CI tolerates its absence.
-- Environments `release` (auto-approved) and `marketplace` (require reviewers).
+See [RELEASES.md](RELEASES.md) and [SECURITY.md](SECURITY.md).
 
 ## License
 
