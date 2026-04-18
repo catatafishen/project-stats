@@ -70,10 +70,15 @@ class TreemapPanel : JPanel() {
         })
         addMouseMotionListener(object : MouseMotionAdapter() {
             override fun mouseMoved(e: MouseEvent) {
+                // Avoid calling setCursor() — and the native updateCursorImmediately()
+                // it triggers — unless the cursor actually needs to change.
+                if (!singleClickDrill) return
                 val hit = hitTest(e.point)
-                val drillable = singleClickDrill && hit != null && hit.children.isNotEmpty()
-                cursor = if (drillable) Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                else Cursor.getDefaultCursor()
+                val newCursor = if (hit != null && hit.children.isNotEmpty())
+                    Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                else
+                    Cursor.getDefaultCursor()
+                if (cursor !== newCursor) cursor = newCursor
             }
         })
         toolTipText = "" // enable tooltips

@@ -360,6 +360,9 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         val shown = drilled?.children ?: rootGroups
         stackedBar.setData(shown, metric, currentColorFn)
         tableModel.update(shown, metric)
+        // fireTableDataChanged() preserves the column model but doesn't repaint
+        // the header — repaint explicitly so column 8 ("% of <Metric>") stays current.
+        table.tableHeader?.repaint()
 
         val scopeFiles = drilled?.fileCount ?: result.fileCount
         val scopeTotal = drilled?.totalLines ?: result.totalLines
@@ -441,7 +444,11 @@ private class StatsTableModel : AbstractTableModel() {
         this.rows = groups
         this.metric = metric
         this.total = groups.sumOf { it.value(metric) }
-        fireTableStructureChanged()
+        // Use fireTableDataChanged() — not fireTableStructureChanged() — to avoid
+        // triggering createDefaultColumnsFromModel() on the shared TableColumnModel,
+        // which would cascade into 40+ revalidate()+repaint() calls on both tables.
+        // Column structure never changes (always 10 columns); only data changes.
+        fireTableDataChanged()
     }
 
     override fun getRowCount(): Int = rows.size
