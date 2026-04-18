@@ -2,19 +2,29 @@ package com.github.projectstats
 
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
-import java.awt.Color
-import java.awt.Cursor
-import java.awt.Dimension
-import java.awt.Graphics
-import java.awt.Graphics2D
-import java.awt.Point
-import java.awt.RenderingHints
+import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.event.MouseMotionAdapter
 import java.awt.geom.Rectangle2D
 import java.util.Locale
 import javax.swing.JPanel
+import kotlin.collections.ArrayDeque
+import kotlin.collections.ArrayList
+import kotlin.collections.List
+import kotlin.collections.MutableList
+import kotlin.collections.elementAt
+import kotlin.collections.emptyList
+import kotlin.collections.filter
+import kotlin.collections.firstOrNull
+import kotlin.collections.isNotEmpty
+import kotlin.collections.joinToString
+import kotlin.collections.last
+import kotlin.collections.lastIndex
+import kotlin.collections.plus
+import kotlin.collections.plusAssign
+import kotlin.collections.sortedByDescending
+import kotlin.collections.sumOf
 
 /**
  * Squarified treemap. Supports drill-down for groups with children (directory tree).
