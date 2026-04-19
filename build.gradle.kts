@@ -4,7 +4,7 @@ plugins {
     jacoco
 }
 
-group = "com.github.projectstats"
+group = "com.github.codescape"
 // Version is set by CI (PLUGIN_VERSION env var) for releases; defaults to a snapshot for local dev.
 version = (System.getenv("PLUGIN_VERSION")?.takeIf { it.isNotBlank() }) ?: "0.0.0-SNAPSHOT"
 

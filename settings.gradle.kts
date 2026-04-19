@@ -1,4 +1,4 @@
-rootProject.name = "project-stats"
+rootProject.name = "codescape"
 
 pluginManagement {
     repositories {

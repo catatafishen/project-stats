@@ -52,7 +52,7 @@ jobs:
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2  # v6.0.0
         with:
           files: build/reports/jacoco/test/jacocoTestReport.xml
-          flags: project-stats
+          flags: codescape
           disable_search: true
           fail_ci_if_error: false
         env:
@@ -82,7 +82,7 @@ jobs:
       - name: Upload plugin artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: project-stats-${{ github.event.pull_request.number || github.sha }}
+          name: codescape-${{ github.event.pull_request.number || github.sha }}
           path: build/distributions/*.zip
           if-no-files-found: error
           retention-days: 7

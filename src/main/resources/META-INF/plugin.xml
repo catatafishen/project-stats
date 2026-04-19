@@ -1,14 +1,13 @@
 <idea-plugin>
-    <id>com.github.projectstats</id>
-    <name>Project Stats</name>
-    <vendor url="https://github.com/catatafishen/project-stats">catatafishen</vendor>
+    <id>com.github.codescape</id>
+    <name>CodeScape</name>
+    <vendor url="https://github.com/catatafishen/codescape">catatafishen</vendor>
     <description><![CDATA[
-        Visualize where your project's source code size comes from.<br/>
-        Breaks down lines of code, code-only LOC and cyclomatic complexity by
-        <b>language</b>, <b>module</b>, <b>source category</b>
+        CodeScape turns your project into a live map of code size and complexity.<br/>
+        Explore the repo by <b>language</b>, <b>module</b>, <b>source category</b>
         (source/test/resources/generated), or <b>directory tree</b> with a treemap,
-        GitHub-style stacked bar, and sortable table. Drill into directories with
-        a single click — empty single-child folder chains collapse automatically.<br/>
+        GitHub-style stacked bar, and sortable table. Drill into directories with a
+        single click — empty single-child folder chains collapse automatically.<br/>
         Cyclomatic complexity uses IntelliJ PSI for every language with a PSI tree
         (Java, Kotlin, Groovy, Python, JS/TS, PHP, Go, Ruby, Rust, Scala, Dart, …)
         and falls back to keyword counting for plain-text files.
@@ -22,9 +21,9 @@
     <depends>com.intellij.modules.java</depends>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow id="Project Stats"
-                    anchor="right"
-                    icon="/icons/projectStatsToolWindow.svg"
-                    factoryClass="com.github.projectstats.ProjectStatsToolWindowFactory"/>
+        <toolWindow id="CodeScape"
+                     anchor="right"
+                     icon="/icons/projectStatsToolWindow.svg"
+                     factoryClass="com.github.projectstats.ProjectStatsToolWindowFactory"/>
     </extensions>
 </idea-plugin>

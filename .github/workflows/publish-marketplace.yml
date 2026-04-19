@@ -88,7 +88,7 @@ jobs:
         run: |
           gh release download "$RELEASE_TAG" \
             --repo "${{ github.repository }}" \
-            --pattern "project-stats-*.zip" \
+            --pattern "codescape-*.zip" \
             --dir release-artifacts
           ls -la release-artifacts/
 
@@ -97,7 +97,7 @@ jobs:
           RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
           CHANNEL: ${{ inputs.channel }}
         run: |
-          PLUGIN_ZIP=$(ls release-artifacts/project-stats-*.zip | head -1)
+          PLUGIN_ZIP=$(ls release-artifacts/codescape-*.zip | head -1)
           echo "Plugin ZIP: $PLUGIN_ZIP"
 
           rm -rf /tmp/plugin-extract
@@ -151,7 +151,7 @@ jobs:
         run: |
           gh release download "$RELEASE_TAG" \
             --repo "${{ github.repository }}" \
-            --pattern "project-stats-*.zip" \
+            --pattern "codescape-*.zip" \
             --dir release-artifacts
           ls -la release-artifacts/
 
@@ -160,12 +160,12 @@ jobs:
           JETBRAINS_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
           CHANNEL: ${{ inputs.channel }}
         run: |
-          PLUGIN_ZIP=$(ls release-artifacts/project-stats-*.zip | head -1)
+          PLUGIN_ZIP=$(ls release-artifacts/codescape-*.zip | head -1)
           echo "Uploading: $PLUGIN_ZIP to channel '${CHANNEL}'"
 
           CURL_ARGS=(
             --header "Authorization: Bearer $JETBRAINS_TOKEN"
-            -F "xmlId=com.github.projectstats"
+            -F "xmlId=com.github.codescape"
             -F "file=@$PLUGIN_ZIP"
           )
           if [ "$CHANNEL" != "stable" ]; then

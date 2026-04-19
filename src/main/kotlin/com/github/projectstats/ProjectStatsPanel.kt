@@ -256,46 +256,6 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         return block
     }
 
-    private fun configureTotalsTable() {
-        totalsTable.tableHeader = null
-        totalsTable.setShowGrid(false)
-        totalsTable.intercellSpacing = Dimension(0, 0)
-        totalsTable.isFocusable = false
-        totalsTable.rowSelectionAllowed = false
-        totalsTable.columnModel = table.columnModel
-        totalsTable.rowHeight = table.rowHeight + 2
-        totalsTable.border = BorderFactory.createMatteBorder(
-            2, 0, 0, 0, JBColor.border(),
-        )
-        val boldFont = totalsTable.font.deriveFont(Font.BOLD)
-        totalsTable.setDefaultRenderer(Any::class.java, object : DefaultTableCellRenderer() {
-            override fun getTableCellRendererComponent(
-                table: JTable, value: Any?, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int
-            ): Component {
-                val c = super.getTableCellRendererComponent(table, value, false, false, row, column)
-                font = boldFont
-                horizontalAlignment = if (column == 0) SwingConstants.LEFT else SwingConstants.RIGHT
-                return c
-            }
-        })
-    }
-
-    private fun kpiLabel(): JBLabel = JBLabel("–").apply {
-        font = font.deriveFont(Font.BOLD, font.size2D + 3f)
-    }
-
-    private fun kpiBlock(caption: String, value: JBLabel): JPanel {
-        val block = JPanel()
-        block.layout = BorderLayout(0, 0)
-        val cap = JBLabel(caption).apply {
-            foreground = JBColor.GRAY
-            font = font.deriveFont(font.size2D - 1f)
-        }
-        block.add(cap, BorderLayout.NORTH)
-        block.add(value, BorderLayout.CENTER)
-        return block
-    }
-
     fun runScan() {
         setScanning(true)
         footerStatus.text = "Scanning…"

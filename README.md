@@ -1,83 +1,41 @@
-# Project Stats — IntelliJ Plugin
+# CodeScape — IntelliJ Plugin
 
-[![CI](https://github.com/catatafishen/project-stats/actions/workflows/ci.yml/badge.svg)](https://github.com/catatafishen/project-stats/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/catatafishen/project-stats/actions/workflows/codeql.yml/badge.svg)](https://github.com/catatafishen/project-stats/actions/workflows/codeql.yml)
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/catatafishen/project-stats/badge)](https://scorecard.dev/viewer/?uri=github.com/catatafishen/project-stats)
-[![codecov](https://codecov.io/gh/catatafishen/project-stats/branch/master/graph/badge.svg)](https://codecov.io/gh/catatafishen/project-stats)
+[![CI](https://github.com/catatafishen/codescape/actions/workflows/ci.yml/badge.svg)](https://github.com/catatafishen/codescape/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/catatafishen/codescape/actions/workflows/codeql.yml/badge.svg)](https://github.com/catatafishen/codescape/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/catatafishen/codescape/badge)](https://scorecard.dev/viewer/?uri=github.com/catatafishen/codescape)
+[![codecov](https://codecov.io/gh/catatafishen/codescape/branch/master/graph/badge.svg)](https://codecov.io/gh/catatafishen/codescape)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-A JetBrains plugin that visualizes where your project's source code comes from — broken down by language, module,
-category, or directory, with multiple metrics and interactive visualizations.
+CodeScape turns a codebase into an interactive map. See where size, complexity, and churn live at a glance, then
+drill from a whole-project overview into a single directory without losing context.
 
-![Project Stats screenshot](img.png)
+![CodeScape screenshot](img.png)
 
 ## Features
 
-### Groupings
+### Why CodeScape
 
-Choose how to slice your project in the **Group by** dropdown:
+- See codebase shape, complexity, and file churn in one place.
+- Switch between language, module, source category, and directory-tree views.
+- Drill down without losing your place, then zoom back out instantly.
 
-| Option | Description |
-|---|---|
-| **Language** | Groups files by IntelliJ file type (Kotlin, Java, TypeScript, XML, …) |
-| **Module** | Groups by IntelliJ module |
-| **Source category** | Groups by classification: Sources, Tests, Resources, Test Resources, Generated, Other |
-| **Directory tree** | Hierarchical drill-down — double-click a tile or row to go deeper, breadcrumb to navigate back |
+### What it shows
 
-### Metrics
-
-Select what value is measured and visualized in the **Metric** dropdown:
-
-| Metric | Description |
-|---|---|
-| **Total LOC** | All lines including blank lines and comments |
-| **Non-blank LOC** | Lines that contain at least one non-whitespace character |
-| **Code LOC** | Non-blank, non-comment lines |
-| **Complexity** | Cyclomatic complexity (branching statements) |
-| **File size** | Raw file size in bytes (displayed as B / KB / MB / GB) |
-| **File count** | Number of files |
-| **Commits** | Number of git commits touching each file |
+- **Treemap** for fast visual scanning and directory drill-down.
+- **Stacked bar** for a compact share-of-project overview.
+- **Sortable table** for exact counts, sizes, and per-group totals.
+- **Metrics** for LOC, code LOC, complexity, file size, file count, and git commit count.
 
 ### Filters
 
-Toggle which file categories are included via the **Include** checkboxes in the toolbar:
+- Include or exclude tests, resources, generated files, and other files with one click.
+- Filters update immediately; no rescan needed.
 
-| Filter | Default | What it controls |
-|---|---|---|
-| **Tests** | ✅ on | Test source roots (JUnit, pytest, etc.) |
-| **Resources** | ✅ on | Resource and test-resource roots |
-| **Generated** | ☑ off | Files under generated source roots |
-| **Other** | ✅ on | Files not matched by any other category |
+### Under the hood
 
-Filters apply instantly — no re-scan needed.
-
-### Visualizations
-
-All three views update simultaneously when you change grouping, metric, or filters:
-
-- **Stacked bar** — GitHub-style proportional bar showing the percentage share of each bucket at a glance.
-- **Treemap** — Squarified treemap with stable per-language colors, value tooltips, and drill-down support
-  (double-click to enter, breadcrumb or back button to exit). Layout is cached; only recomputed on data or size change.
-- **Sortable table** — Shows each bucket's name, file count, Total LOC, Non-blank LOC, Code LOC, file size, share %,
-  and child count. Click any column header to sort. Large numbers are displayed compactly (e.g. `32.9K`).
-  Sorting uses the raw numeric value, so ordering is always correct.
-
-### Summary KPIs
-
-The footer always shows totals for the current filter state:
-
-- **Files** — total file count
-- **LOC** — total line count
-- **Size** — total size (auto-scaled to B / KB / MB / GB)
-- **Scan** — time taken for the last scan
-
-### Scanning
-
-- Runs in the background with a progress indicator and a cancel button.
-- Large-file guard: files over 4 MiB are counted by size only (no LOC counting).
-- Uses IntelliJ's `ProjectFileIndex`, `GeneratedSourcesFilter`, and JPS `JavaSourceRootType` for authoritative
-  source-root classification, and `VirtualFile` charsets for accurate line counts.
-- Git commit counts are read from `git log --follow` per file when git is available.
+- Background scanning with cancel support.
+- Authoritative source-root classification via IntelliJ APIs.
+- PSI-based complexity counting where available, with a plain-text fallback.
 
 ## Build & contributing
 

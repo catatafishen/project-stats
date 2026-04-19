@@ -103,7 +103,7 @@ object ProjectScanner {
     ): List<FileStat> {
         val parallelism = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
         val executor = Executors.newFixedThreadPool(parallelism) { r ->
-            Thread(r, "project-stats-scanner").apply { isDaemon = true }
+            Thread(r, "codescape-scanner").apply { isDaemon = true }
         }
         val files = ArrayList<FileStat>(toProcess.size)
         val progressStep = (toProcess.size / 100).coerceAtLeast(50)
@@ -260,4 +260,3 @@ object ProjectScanner {
         }
     }
 }
-
