@@ -52,6 +52,13 @@ class TreemapPanel : JPanel() {
     private var layoutW: Double = -1.0
     private var layoutH: Double = -1.0
 
+    // Metric-change animation state.
+    private var animTimer: javax.swing.Timer? = null
+    private var animFromRects: Map<String, Rectangle2D.Double>? = null
+    private var animT: Float = 1f
+    private var animStartNanos: Long = 0L
+    private val animDurationMs = 260
+
     init {
         background = JBColor.background()
         preferredSize = JBUI.size(400, 300)
@@ -91,13 +98,79 @@ class TreemapPanel : JPanel() {
         if (!enabled) cursor = Cursor.getDefaultCursor()
     }
 
-    fun setData(groups: List<StatGroup>, metric: Metric, colorFn: (StatGroup) -> Color) {
+    fun setData(
+        groups: List<StatGroup>,
+        metric: Metric,
+        colorFn: (StatGroup) -> Color,
+        preservePath: Boolean = false,
+        animate: Boolean = false,
+    ) {
+        val preservedKeys = if (preservePath) drillPathKeys() else emptyList()
+        val animateFrom: Map<String, Rectangle2D.Double>? =
+            if (animate && rects.isNotEmpty()) {
+                val m = HashMap<String, Rectangle2D.Double>(rects.size)
+                for ((r, g) in rects) {
+                    m[g.key] = Rectangle2D.Double(r.x, r.y, r.width, r.height)
+                }
+                m
+            } else null
         this.groups = groups
         this.metric = metric
         this.colorFor = colorFn
         this.drillStack.clear()
+        if (preservedKeys.isNotEmpty()) restoreDrillPath(preservedKeys)
         layoutDirty = true
+        if (animateFrom != null) startAnimation(animateFrom) else stopAnimation()
         repaint()
+    }
+
+    /** Snapshot of the drill path — one key-chain per drill step. */
+    fun drillPathKeys(): List<List<String>> = drillStack.map { step -> step.chain.map { it.key } }
+
+    /** Replay a key-chain path against [groups]. Path steps that can no longer be resolved are dropped. */
+    private fun restoreDrillPath(pathKeys: List<List<String>>) {
+        var level: List<StatGroup> = groups
+        for (step in pathKeys) {
+            val chain = ArrayList<StatGroup>(step.size)
+            var scan = level
+            for (key in step) {
+                val match = scan.firstOrNull { it.key == key } ?: break
+                chain.add(match)
+                scan = match.children
+            }
+            if (chain.size != step.size) break
+            drillStack.addLast(DrillStep(chain))
+            level = chain.last().children
+        }
+    }
+
+
+    private fun startAnimation(from: Map<String, Rectangle2D.Double>) {
+        stopAnimation()
+        animFromRects = from
+        animT = 0f
+        animStartNanos = System.nanoTime()
+        val timer = javax.swing.Timer(16) {
+            val elapsedMs = (System.nanoTime() - animStartNanos) / 1_000_000.0
+            animT = (elapsedMs / animDurationMs).toFloat().coerceIn(0f, 1f)
+            repaint()
+            if (animT >= 1f) stopAnimation()
+        }
+        timer.isRepeats = true
+        animTimer = timer
+        timer.start()
+    }
+
+    private fun stopAnimation() {
+        animTimer?.stop()
+        animTimer = null
+        animFromRects = null
+        animT = 1f
+    }
+
+    private fun easedT(): Double {
+        val t = animT.toDouble().coerceIn(0.0, 1.0)
+        return t * t * (3 - 2 * t)
     }
 
     /** Callback fired whenever the drill state changes (user drill-in or drill-out).
@@ -122,6 +195,7 @@ class TreemapPanel : JPanel() {
     fun popToDepth(keep: Int) {
         if (keep < 0 || keep >= drillStack.size) return
         while (drillStack.size > keep) drillStack.removeLast()
+        stopAnimation()
         layoutDirty = true
         repaint()
         onDrillChanged?.invoke(currentDrilledGroup())
@@ -130,6 +204,7 @@ class TreemapPanel : JPanel() {
     fun popDrill(): Boolean {
         if (drillStack.isEmpty()) return false
         drillStack.removeLast()
+        stopAnimation()
         layoutDirty = true
         repaint()
         onDrillChanged?.invoke(currentDrilledGroup())
@@ -147,6 +222,7 @@ class TreemapPanel : JPanel() {
             chain.add(current)
         }
         drillStack.addLast(DrillStep(chain))
+        stopAnimation()
         layoutDirty = true
         repaint()
         onDrillChanged?.invoke(current)
@@ -195,13 +271,17 @@ class TreemapPanel : JPanel() {
             layoutDirty = false
         }
 
+        val animating = animTimer != null && animT < 1f
+        val fromMap = if (animating) animFromRects else null
+        val t = if (animating) easedT() else 1.0
         for ((rect, grp) in rects) {
+            val displayRect = interpolateRect(fromMap?.get(grp.key), rect, t)
             val color = colorFor(grp)
             g2.color = color
-            g2.fill(rect)
+            g2.fill(displayRect)
             g2.color = JBColor.border()
-            g2.draw(rect)
-            drawCellLabel(g2, rect, grp, color)
+            g2.draw(displayRect)
+            drawCellLabel(g2, displayRect, grp, color)
         }
 
         // In-treemap breadcrumb (double-click modes only — directory mode shows a toolbar breadcrumb).
@@ -210,6 +290,16 @@ class TreemapPanel : JPanel() {
             g2.color = JBColor.foreground()
             g2.drawString(crumb, 6, height - 6)
         }
+    }
+
+    private fun interpolateRect(from: Rectangle2D.Double?, to: Rectangle2D.Double, t: Double): Rectangle2D.Double {
+        if (from == null || t >= 1.0) return to
+        return Rectangle2D.Double(
+            from.x + (to.x - from.x) * t,
+            from.y + (to.y - from.y) * t,
+            from.width + (to.width - from.width) * t,
+            from.height + (to.height - from.height) * t,
+        )
     }
 
     private fun drawCellLabel(g2: Graphics2D, rect: Rectangle2D.Double, grp: StatGroup, fill: Color) {

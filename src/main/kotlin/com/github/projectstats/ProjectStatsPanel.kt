@@ -73,6 +73,9 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     private var rootGroups: List<StatGroup> = emptyList()
     private var currentColorFn: (StatGroup) -> Color = { JBColor.GRAY }
     private var scanning: Boolean = false
+    private var lastScanResult: ScanResult? = null
+    private var lastGroupBy: GroupBy? = null
+    private var lastMetric: Metric? = null
 
     companion object {
         private const val CARD_EMPTY = "empty"
@@ -299,12 +302,15 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
             currentColorFn = { JBColor.GRAY }
             treemap.setSingleClickDrill(false)
             treemap.setData(emptyList(), Metric.LOC, currentColorFn)
-            stackedBar.setData(emptyList(), Metric.LOC) { JBColor.GRAY }
+            stackedBar.setData(emptyList(), Metric.LOC, { JBColor.GRAY })
             tableModel.update(emptyList(), Metric.LOC)
             totalsModel.clear()
             showCard(treemapCard, CARD_EMPTY)
             showCard(tableCard, CARD_EMPTY)
             updateBreadcrumbs()
+            lastScanResult = null
+            lastGroupBy = null
+            lastMetric = null
             return
         }
         val groupBy = groupByBox.selectedItem as GroupBy
@@ -322,18 +328,26 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
             else -> { g -> hashColor(g.key) }
         }
         rootGroups = groups
+        val scanChanged = result !== lastScanResult
+        val groupByChanged = groupBy != lastGroupBy
+        val metricChanged = metric != lastMetric
+        val preservePath = !scanChanged && !groupByChanged
+        val animate = preservePath && metricChanged
         treemap.setSingleClickDrill(groupBy == GroupBy.DIRECTORY)
-        treemap.setData(groups, metric, currentColorFn)
+        treemap.setData(groups, metric, currentColorFn, preservePath, animate)
         showCard(treemapCard, CARD_DATA)
         showCard(tableCard, CARD_DATA)
-        applyDrill(null)
+        applyDrill(treemap.currentDrilledGroup(), animate)
+        lastScanResult = result
+        lastGroupBy = groupBy
+        lastMetric = metric
     }
 
-    private fun applyDrill(drilled: StatGroup?) {
+    private fun applyDrill(drilled: StatGroup?, animateBar: Boolean = false) {
         val result = scanResult ?: return
         val metric = metricBox.selectedItem as Metric
         val shown = drilled?.children ?: rootGroups
-        stackedBar.setData(shown, metric, currentColorFn)
+        stackedBar.setData(shown, metric, currentColorFn, animateBar)
         tableModel.update(shown, metric)
         // fireTableDataChanged() preserves the column model but doesn't repaint
         // the header — repaint explicitly so column 8 ("% of <Metric>") stays current.
