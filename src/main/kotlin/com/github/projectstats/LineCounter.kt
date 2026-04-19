@@ -125,56 +125,27 @@ object LineCounter {
         "pm" to arrayOf("if", "elsif", "for", "foreach", "while", "unless", "until"),
     )
 
-    /**
-     * Count total, non-blank, code, and approximate cyclomatic complexity for [text].
-     *
-     * [extension] is lower-case, no leading dot (e.g. "kt"). Unknown extensions yield
-     * total/non-blank counts only (code == non-blank, complexity == 0).
-     */
     fun count(text: String, extension: String): LineStats {
         val ext = extension.lowercase()
         val style = COMMENT_STYLES[ext]
         val keywords = DECISION_KEYWORDS[ext]
+        val codeBuffer = if (keywords != null) StringBuilder(128) else null
         var total = 0
         var nonBlank = 0
         var codeL = 0
         var complexity = 0
         var inBlock = false
-        val codeBuffer = if (keywords != null) StringBuilder(128) else null
         var lineStart = 0
         var i = 0
         while (i <= text.length) {
             if (i == text.length || text[i] == '\n') {
                 total++
                 val lineEnd = if (i > lineStart && text[i - 1] == '\r') i - 1 else i
-                var hasContent = false
-                for (j in lineStart until lineEnd) {
-                    val c = text[j]
-                    if (c != ' ' && c != '\t') {
-                        hasContent = true; break
-                    }
-                }
-                if (hasContent) {
-                    nonBlank++
-                    if (style == null) {
-                        codeL++
-                        if (keywords != null) {
-                            complexity += countKeywordsInRange(text, lineStart, lineEnd, keywords)
-                        }
-                    } else {
-                        codeBuffer?.setLength(0)
-                        val (hasCode, newInBlock) = classifyLine(
-                            text, lineStart, lineEnd, inBlock, style, codeBuffer
-                        )
-                        inBlock = newInBlock
-                        if (hasCode) {
-                            codeL++
-                            if (codeBuffer != null && keywords != null) {
-                                complexity += countKeywordsInBuffer(codeBuffer, keywords)
-                            }
-                        }
-                    }
-                }
+                val delta = processLine(text, lineStart, lineEnd, style, keywords, codeBuffer, inBlock)
+                nonBlank += delta.nonBlank
+                codeL += delta.code
+                complexity += delta.complexity
+                inBlock = delta.inBlock
                 lineStart = i + 1
             }
             i++
@@ -183,11 +154,39 @@ object LineCounter {
         return LineStats(total, nonBlank, codeL, complexity)
     }
 
-    /**
-     * Scans one line of [text] from [lineStart] to [lineEnd] (exclusive) respecting comment syntax.
-     * Returns (hasCode, inBlockAfterLine). If [codeBuffer] is non-null, code characters are
-     * appended for keyword counting.
-     */
+    /** Per-line counts accumulated by [processLine]. */
+    private data class LineDelta(val nonBlank: Int, val code: Int, val complexity: Int, val inBlock: Boolean)
+
+    private fun processLine(
+        text: String,
+        lineStart: Int,
+        lineEnd: Int,
+        style: CommentStyle?,
+        keywords: Array<String>?,
+        codeBuffer: StringBuilder?,
+        inBlock: Boolean,
+    ): LineDelta {
+        if (!hasNonWhitespace(text, lineStart, lineEnd)) return LineDelta(0, 0, 0, inBlock)
+        if (style == null) {
+            val cplx = if (keywords != null) countKeywordsInRange(text, lineStart, lineEnd, keywords) else 0
+            return LineDelta(nonBlank = 1, code = 1, complexity = cplx, inBlock = inBlock)
+        }
+        codeBuffer?.setLength(0)
+        val (hasCode, newInBlock) = classifyLine(text, lineStart, lineEnd, inBlock, style, codeBuffer)
+        val cplx = if (hasCode && codeBuffer != null && keywords != null) {
+            countKeywordsInBuffer(codeBuffer, keywords)
+        } else 0
+        return LineDelta(nonBlank = 1, code = if (hasCode) 1 else 0, complexity = cplx, inBlock = newInBlock)
+    }
+
+    private fun hasNonWhitespace(text: String, start: Int, end: Int): Boolean {
+        for (j in start until end) {
+            val c = text[j]
+            if (c != ' ' && c != '\t') return true
+        }
+        return false
+    }
+
     internal fun classifyLine(
         text: String,
         lineStart: Int,
@@ -201,54 +200,82 @@ object LineCounter {
         var j = lineStart
         while (j < lineEnd) {
             if (inBlock) {
-                val bc = style.blockClose
-                if (bc != null && text.startsWith(bc, j)) {
-                    inBlock = false
-                    j += bc.length
-                } else {
-                    j++
-                }
+                val (next, stillInBlock) = advanceInBlock(text, j, style)
+                j = next
+                inBlock = stillInBlock
             } else {
-                val bo = style.blockOpen
-                val lc = style.line
-                when {
-                    bo != null && text.startsWith(bo, j) -> {
-                        inBlock = true; j += bo.length
-                    }
-
-                    lc != null && text.startsWith(lc, j) -> break // rest of line is comment
-                    else -> {
-                        val c = text[j]
-                        if (c != ' ' && c != '\t') hasCode = true
-                        codeBuffer?.append(c)
-                        j++
-                    }
-                }
+                val step = advanceOutsideBlock(text, j, lineEnd, style, codeBuffer)
+                if (step.isLineCommentStart) break
+                if (step.enteredBlock) inBlock = true
+                if (step.consumedCode) hasCode = true
+                j = step.next
             }
         }
         return Pair(hasCode, inBlock)
     }
 
-    /**
-     * Count occurrences of [keywords] in [text] between [start] and [end] (exclusive),
-     * respecting word boundaries.
-     */
+    private fun advanceInBlock(text: String, j: Int, style: CommentStyle): Pair<Int, Boolean> {
+        val bc = style.blockClose
+        return if (bc != null && text.startsWith(bc, j)) Pair(j + bc.length, false) else Pair(j + 1, true)
+    }
+
+    private data class OutsideStep(
+        val next: Int,
+        val enteredBlock: Boolean,
+        val isLineCommentStart: Boolean,
+        val consumedCode: Boolean,
+    )
+
+    private fun advanceOutsideBlock(
+        text: String,
+        j: Int,
+        lineEnd: Int,
+        style: CommentStyle,
+        codeBuffer: StringBuilder?,
+    ): OutsideStep {
+        val bo = style.blockOpen
+        if (bo != null && text.startsWith(bo, j)) {
+            return OutsideStep(
+                next = j + bo.length,
+                enteredBlock = true,
+                isLineCommentStart = false,
+                consumedCode = false
+            )
+        }
+        val lc = style.line
+        if (lc != null && text.startsWith(lc, j)) {
+            return OutsideStep(next = lineEnd, enteredBlock = false, isLineCommentStart = true, consumedCode = false)
+        }
+        val c = text[j]
+        val isCode = c != ' ' && c != '\t'
+        codeBuffer?.append(c)
+        return OutsideStep(next = j + 1, enteredBlock = false, isLineCommentStart = false, consumedCode = isCode)
+    }
+
     internal fun countKeywordsInRange(text: String, start: Int, end: Int, keywords: Array<String>): Int {
         var count = 0
         for (kw in keywords) {
-            var pos = start
-            while (pos < end) {
-                val idx = text.indexOf(kw, pos)
-                if (idx == -1 || idx >= end) break
-                val before = if (idx > 0) text[idx - 1] else ' '
-                val after = if (idx + kw.length < text.length) text[idx + kw.length] else ' '
-                if (!before.isLetterOrDigit() && before != '_' &&
-                    !after.isLetterOrDigit() && after != '_'
-                ) count++
-                pos = idx + 1
-            }
+            count += countOneKeywordInRange(text, start, end, kw)
         }
         return count
+    }
+
+    private fun countOneKeywordInRange(text: String, start: Int, end: Int, kw: String): Int {
+        var count = 0
+        var pos = start
+        while (pos < end) {
+            val idx = text.indexOf(kw, pos)
+            if (idx == -1 || idx >= end) break
+            if (isWordBoundaryAt(text, idx, kw.length)) count++
+            pos = idx + 1
+        }
+        return count
+    }
+
+    private fun isWordBoundaryAt(text: String, idx: Int, len: Int): Boolean {
+        val before = if (idx > 0) text[idx - 1] else ' '
+        val after = if (idx + len < text.length) text[idx + len] else ' '
+        return !before.isLetterOrDigit() && before != '_' && !after.isLetterOrDigit() && after != '_'
     }
 
     internal fun countKeywordsInBuffer(buf: StringBuilder, keywords: Array<String>): Int {
