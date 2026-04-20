@@ -1,6 +1,9 @@
 package com.github.projectstats
 
-import com.intellij.openapi.application.ReadAction
+import com.github.projectstats.coverage.CoverageData
+import com.github.projectstats.coverage.CoverageLoader
+import com.github.projectstats.coverage.CoverageMatcher
+import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.project.Project
@@ -44,7 +47,11 @@ object ProjectScanner {
         if (projectBase != null) roots.add(projectBase)
 
         val toProcess = collectFiles(roots, indicator)
-        val files = classifyInParallel(toProcess, project, fileIndex, projectBase, commitCounts, indicator)
+        val rawFiles = classifyInParallel(toProcess, project, fileIndex, projectBase, commitCounts, indicator)
+
+        // Coverage is opt-in: we only attach it if a recognised report exists at a standard path.
+        val coverage: CoverageData? = projectBase?.let { CoverageLoader.load(it, indicator) }
+        val files = applyCoverage(rawFiles, coverage)
 
         var totalLines = 0L
         var nonBlank = 0L
@@ -52,6 +59,8 @@ object ProjectScanner {
         var complexityTotal = 0L
         var size = 0L
         var commitsTotal = 0L
+        var coveredTotal = 0L
+        var coverableTotal = 0L
         for (stat in files) {
             totalLines += stat.totalLines
             nonBlank += stat.nonBlankLines
@@ -59,6 +68,8 @@ object ProjectScanner {
             complexityTotal += stat.complexity
             size += stat.sizeBytes
             commitsTotal += stat.commitCount
+            coveredTotal += stat.coveredLines
+            coverableTotal += stat.coverableLines
         }
 
         return ScanResult(
@@ -71,7 +82,19 @@ object ProjectScanner {
             fileCount = files.size.toLong(),
             commitCount = commitsTotal,
             scannedMillis = System.currentTimeMillis() - started,
+            coveredLines = coveredTotal,
+            coverableLines = coverableTotal,
+            coverageSource = coverage?.let { "${it.format.display}: ${it.sourceLabel}" },
         )
+    }
+
+    private fun applyCoverage(files: List<FileStat>, coverage: CoverageData?): List<FileStat> {
+        if (coverage == null || coverage.perFile.isEmpty()) return files
+        val matcher = CoverageMatcher(coverage)
+        return files.map { f ->
+            val match = matcher.match(f.relativePath) ?: return@map f
+            f.copy(coveredLines = match.coveredLines, coverableLines = match.coverableLines)
+        }
     }
 
     /** Phase 1: walk VFS (fast, sequential) to collect candidate files, skipping known build/VCS dirs. */
@@ -110,7 +133,7 @@ object ProjectScanner {
         try {
             val futures = toProcess.map { file ->
                 executor.submit(Callable {
-                    ReadAction.compute<FileStat?, RuntimeException> {
+                    runReadAction {
                         classify(file, project, fileIndex, projectBase)
                     }?.let { base ->
                         if (commitCounts.isEmpty()) base

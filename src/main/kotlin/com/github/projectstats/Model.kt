@@ -28,6 +28,10 @@ data class FileStat(
     val sizeBytes: Long,
     val commitCount: Int = 0,
     val fileCount: Int = 1,
+    /** Number of executable/instrumentable lines reported as covered. */
+    val coveredLines: Int = 0,
+    /** Number of executable/instrumentable lines in the file (covered + uncovered). 0 = no coverage data. */
+    val coverableLines: Int = 0,
 )
 
 /**
@@ -43,6 +47,8 @@ data class StatGroup(
     val fileCount: Long,
     val commitCount: Long,
     val children: List<StatGroup> = emptyList(),
+    val coveredLines: Long = 0,
+    val coverableLines: Long = 0,
 ) {
     fun value(metric: Metric): Long = when (metric) {
         Metric.LOC -> totalLines
@@ -52,6 +58,14 @@ data class StatGroup(
         Metric.SIZE -> sizeBytes
         Metric.FILE_COUNT -> fileCount
         Metric.COMMIT_COUNT -> commitCount
+        Metric.COVERED_LOC -> coveredLines
+        Metric.UNCOVERED_LOC -> (coverableLines - coveredLines).coerceAtLeast(0)
+    }
+
+    /** Coverage as a fraction in [0, 1], or null if the group has no coverage data. */
+    fun coverageFraction(): Double? {
+        if (coverableLines <= 0) return null
+        return coveredLines.toDouble() / coverableLines.toDouble()
     }
 }
 
@@ -62,7 +76,9 @@ enum class Metric(val display: String) {
     COMPLEXITY("Complexity"),
     SIZE("File size"),
     FILE_COUNT("File count"),
-    COMMIT_COUNT("Commits");
+    COMMIT_COUNT("Commits"),
+    COVERED_LOC("Covered LOC"),
+    UNCOVERED_LOC("Uncovered LOC");
 
     override fun toString() = display
 }
@@ -89,4 +105,8 @@ data class ScanResult(
     val fileCount: Long,
     val commitCount: Long,
     val scannedMillis: Long,
+    val coveredLines: Long = 0,
+    val coverableLines: Long = 0,
+    /** Description of where coverage data came from (e.g. "lcov.info"), or null if none was loaded. */
+    val coverageSource: String? = null,
 )
