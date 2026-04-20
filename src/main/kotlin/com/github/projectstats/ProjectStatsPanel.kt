@@ -267,7 +267,7 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
                 ApplicationManager.getApplication().invokeLater {
                     scanResult = result
                     setScanning(false)
-                    footerStatus.text = " "
+                    footerStatus.text = result.coverageSource?.let { "Coverage: $it" } ?: " "
                     refreshViews()
                 }
             }
