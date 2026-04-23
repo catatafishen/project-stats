@@ -12,11 +12,11 @@ import com.intellij.ui.OnePixelSplitter
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.breadcrumbs.Breadcrumbs
+import com.intellij.ui.components.breadcrumbs.Crumb
 import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
 import java.awt.*
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
 import java.util.*
 import javax.swing.*
 import javax.swing.event.ChangeEvent
@@ -45,9 +45,19 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val kpiLoc = kpiLabel()
     private val kpiSize = kpiLabel()
     private val kpiScan = kpiLabel()
-    private val breadcrumbRow = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+    // Maps each crumb to the drill depth it should navigate to (0 = project root).
+    private val crumbTargets = IdentityHashMap<Crumb, Int>()
+    private val breadcrumbs = Breadcrumbs().apply {
+        isVisible = false
+        onSelect { crumb, _ ->
+            crumbTargets[crumb]?.let { treemap.popToDepth(it) }
+        }
+    }
+    private val breadcrumbRow = JPanel(BorderLayout()).apply {
         border = JBUI.Borders.emptyTop(2)
         isVisible = false
+        add(JLabel("Path: ").apply { border = JBUI.Borders.emptyRight(4) }, BorderLayout.WEST)
+        add(breadcrumbs, BorderLayout.CENTER)
     }
 
     private val treemap = TreemapPanel()
@@ -367,7 +377,6 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     private fun updateBreadcrumbs() {
-        breadcrumbRow.removeAll()
         val isDir = (groupByBox.selectedItem as? GroupBy) == GroupBy.DIRECTORY
         if (!isDir) {
             breadcrumbRow.isVisible = false
@@ -375,31 +384,25 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
             breadcrumbRow.repaint()
             return
         }
-        breadcrumbRow.isVisible = true
-        breadcrumbRow.add(JLabel("Path:"))
-        breadcrumbRow.add(crumbLabel("<project>", 0))
+        crumbTargets.clear()
         val depth = treemap.drillDepth()
+        val crumbs = ArrayList<Crumb>(depth + 1)
+        crumbs += makeCrumb("<project>", 0)
         for (i in 0 until depth) {
-            breadcrumbRow.add(JLabel("/"))
-            breadcrumbRow.add(crumbLabel(treemap.drillStepDisplay(i), i + 1))
+            crumbs += makeCrumb(treemap.drillStepDisplay(i), i + 1)
         }
+        breadcrumbs.setCrumbs(crumbs)
+        breadcrumbRow.isVisible = true
         breadcrumbRow.revalidate()
         breadcrumbRow.repaint()
     }
 
-    private fun crumbLabel(text: String, targetDepth: Int): JLabel {
+    private fun makeCrumb(text: String, targetDepth: Int): Crumb {
         val isCurrent = targetDepth == treemap.drillDepth()
-        val label = JLabel(if (isCurrent) "<html><b>$text</b></html>" else "<html><a href=''>$text</a></html>")
-        if (!isCurrent) {
-            label.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            label.toolTipText = "Go to $text"
-            label.addMouseListener(object : MouseAdapter() {
-                override fun mouseClicked(e: MouseEvent) {
-                    treemap.popToDepth(targetDepth)
-                }
-            })
-        }
-        return label
+        val tooltip = if (isCurrent) null else "Go to $text"
+        val crumb = Crumb.Impl(null, text, tooltip)
+        crumbTargets[crumb] = targetDepth
+        return crumb
     }
 
     private fun categoryColor(key: String): Color = when (key) {
