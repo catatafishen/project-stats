@@ -33,23 +33,6 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val includeGenerated = JBCheckBox("Generated", false)
     private val includeResources = JBCheckBox("Resources", true)
     private val includeOther = JBCheckBox("Other", true)
-    val refreshBtn = JButton(AllIcons.Actions.Refresh).apply {
-        toolTipText = "Refresh stats"
-        isFocusable = false
-        isBorderPainted = false
-        isContentAreaFilled = false
-        margin = JBUI.emptyInsets()
-        putClientProperty("JButton.buttonType", "toolBarButton")
-    }
-    private val coverageBtn = JButton(AllIcons.General.Settings).apply {
-        toolTipText = "Manage coverage reports"
-        isFocusable = false
-        isBorderPainted = false
-        isContentAreaFilled = false
-        margin = JBUI.emptyInsets()
-        putClientProperty("JButton.buttonType", "toolBarButton")
-        addActionListener { showCoverageReportsDialog() }
-    }
     private val footerStatus = JBLabel(" ")
     private val kpiFiles = kpiLabel()
     private val kpiLoc = kpiLabel()
@@ -93,7 +76,8 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     private var scanResult: ScanResult? = null
     private var rootGroups: List<StatGroup> = emptyList()
     private var currentColorFn: (StatGroup) -> Color = { JBColor.GRAY }
-    private var scanning: Boolean = false
+    var isScanning: Boolean = false
+        private set
     private var lastScanResult: ScanResult? = null
     private var lastGroupBy: GroupBy? = null
     private var lastMetric: Metric? = null
@@ -106,23 +90,17 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     init {
         border = JBUI.Borders.empty(4)
 
-        val toolbar = JPanel(BorderLayout()).apply {
-            add(JPanel(FlowLayout(FlowLayout.LEFT, 6, 2)).apply {
-                add(JLabel("Group by:"))
-                add(groupByBox)
-                add(JLabel("  Metric:"))
-                add(metricBox)
-                add(Box.createHorizontalStrut(8))
-                add(JLabel("Include:"))
-                add(includeTests)
-                add(includeGenerated)
-                add(includeResources)
-                add(includeOther)
-            }, BorderLayout.CENTER)
-            add(JPanel(FlowLayout(FlowLayout.RIGHT, 4, 2)).apply {
-                add(coverageBtn)
-                add(refreshBtn)
-            }, BorderLayout.EAST)
+        val toolbar = JPanel(FlowLayout(FlowLayout.LEFT, 6, 2)).apply {
+            add(JLabel("Group by:"))
+            add(groupByBox)
+            add(JLabel("  Metric:"))
+            add(metricBox)
+            add(Box.createHorizontalStrut(8))
+            add(JLabel("Include:"))
+            add(includeTests)
+            add(includeGenerated)
+            add(includeResources)
+            add(includeOther)
         }
 
         val header = JPanel(BorderLayout())
@@ -175,7 +153,6 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         add(split, BorderLayout.CENTER)
         add(footer, BorderLayout.SOUTH)
 
-        refreshBtn.addActionListener { runScan() }
         groupByBox.addActionListener { refreshViews() }
         metricBox.addActionListener { refreshViews() }
         includeTests.addActionListener { refreshViews() }
@@ -316,10 +293,7 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     private fun setScanning(running: Boolean) {
-        scanning = running
-        refreshBtn.icon = if (running) AnimatedIcon.Default.INSTANCE else AllIcons.Actions.Refresh
-        refreshBtn.toolTipText = if (running) "Scanning…" else "Refresh stats"
-        refreshBtn.isEnabled = !running
+        isScanning = running
     }
 
     private fun refreshViews() {
@@ -424,7 +398,7 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         breadcrumbs.setCrumbs(crumbs)
     }
 
-    private fun showCoverageReportsDialog() {
+    fun showCoverageReportsDialog() {
         val dialog = object : DialogWrapper(project, true) {
             init {
                 title = "Manage Coverage Reports"
