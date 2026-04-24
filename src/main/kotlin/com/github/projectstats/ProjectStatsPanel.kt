@@ -31,15 +31,13 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val includeGenerated = JBCheckBox("Generated", false)
     private val includeResources = JBCheckBox("Resources", true)
     private val includeOther = JBCheckBox("Other", true)
-    private val kpiFiles = kpiLabel()
-    private val kpiLoc = kpiLabel()
-    private val kpiSize = kpiLabel()
-    private val kpiScan = kpiLabel()
 
     // Maps each crumb to the drill depth it should navigate to (0 = project root).
     private val crumbTargets = IdentityHashMap<Crumb, Int>()
     private val breadcrumbs = Breadcrumbs().apply {
         preferredSize = Dimension(400, 22)
+        background = JBColor.background()
+        isOpaque = true
         onSelect { crumb, _ ->
             crumbTargets[crumb]?.let { treemap.popToDepth(it) }
         }
@@ -47,6 +45,8 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val breadcrumbRow = JPanel(BorderLayout()).apply {
         border = JBUI.Borders.emptyTop(2)
         isVisible = false
+        isOpaque = true
+        background = JBColor.background()
         preferredSize = Dimension(0, 24)
         add(JLabel("Path: ").apply { border = JBUI.Borders.emptyRight(4) }, BorderLayout.WEST)
         add(breadcrumbs, BorderLayout.CENTER)
@@ -135,16 +135,8 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
             secondComponent = tableCard
         }
 
-        val kpis = JPanel(FlowLayout(FlowLayout.LEFT, 16, 2)).apply {
-            add(kpiBlock("Files", kpiFiles))
-            add(kpiBlock("LOC", kpiLoc))
-            add(kpiBlock("Size", kpiSize))
-            add(kpiBlock("Scan", kpiScan))
-        }
-
         add(header, BorderLayout.NORTH)
         add(split, BorderLayout.CENTER)
-        add(kpis, BorderLayout.SOUTH)
 
         groupByBox.addActionListener { refreshViews() }
         metricBox.addActionListener { refreshViews() }
@@ -237,22 +229,6 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         else -> value?.toString().orEmpty()
     }
 
-    private fun kpiLabel(): JBLabel = JBLabel("–").apply {
-        font = font.deriveFont(Font.BOLD, font.size2D + 3f)
-    }
-
-    private fun kpiBlock(caption: String, value: JBLabel): JPanel {
-        val block = JPanel()
-        block.layout = BorderLayout(0, 0)
-        val cap = JBLabel(caption).apply {
-            foreground = JBColor.GRAY
-            font = font.deriveFont(font.size2D - 1f)
-        }
-        block.add(cap, BorderLayout.NORTH)
-        block.add(value, BorderLayout.CENTER)
-        return block
-    }
-
     fun runScan() {
         setScanning(true)
         object : Task.Backgroundable(project, "Computing project statistics", true) {
@@ -287,7 +263,6 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     private fun refreshViews() {
         val result = scanResult ?: run {
-            setKpis(0L, 0L, 0L, 0L)
             rootGroups = emptyList()
             currentColorFn = { JBColor.GRAY }
             treemap.setSingleClickDrill(false)
@@ -343,17 +318,9 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
         // the header — repaint explicitly so column 8 ("% of <Metric>") stays current.
         table.tableHeader?.repaint()
 
-        setKpis(result.fileCount, result.totalLines, result.sizeBytes, result.scannedMillis)
         val scope = drilled ?: result.asStatGroup("Total")
         totalsModel.update(drilled?.key ?: "Total", scope)
         updateBreadcrumbs()
-    }
-
-    private fun setKpis(files: Long, loc: Long, size: Long, scanMs: Long) {
-        kpiFiles.text = "%,d".format(files)
-        kpiLoc.text = "%,d".format(loc)
-        kpiSize.text = humanBytes(size)
-        kpiScan.text = "$scanMs ms"
     }
 
     private fun updateBreadcrumbs() {

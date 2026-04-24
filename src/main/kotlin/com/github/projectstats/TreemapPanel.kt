@@ -12,20 +12,26 @@ import java.util.Locale
 import javax.swing.JPanel
 import kotlin.collections.ArrayDeque
 import kotlin.collections.ArrayList
+import kotlin.collections.HashMap
 import kotlin.collections.List
+import kotlin.collections.Map
 import kotlin.collections.MutableList
 import kotlin.collections.elementAt
 import kotlin.collections.emptyList
 import kotlin.collections.filter
+import kotlin.collections.first
 import kotlin.collections.firstOrNull
 import kotlin.collections.isNotEmpty
 import kotlin.collections.joinToString
 import kotlin.collections.last
 import kotlin.collections.lastIndex
+import kotlin.collections.map
 import kotlin.collections.plus
 import kotlin.collections.plusAssign
+import kotlin.collections.set
 import kotlin.collections.sortedByDescending
 import kotlin.collections.sumOf
+import kotlin.collections.toList
 
 /**
  * Squarified treemap. Supports drill-down for groups with children (directory tree).
@@ -60,6 +66,7 @@ class TreemapPanel : JPanel() {
     // Animation state. METRIC = cells morph between two metric values; DRILL_IN/OUT = zoom into/out
     // of a clicked cell. All three reuse the same Swing Timer + eased-t machinery.
     private enum class AnimKind { METRIC, DRILL_IN, DRILL_OUT }
+
     private var animKind: AnimKind = AnimKind.METRIC
     private var animTimer: javax.swing.Timer? = null
     private var animT: Float = 1f
@@ -73,8 +80,10 @@ class TreemapPanel : JPanel() {
     // DRILL anim state.
     /** Per-child key -> source rect (where the child starts the animation). */
     private var drillFromRects: Map<String, Rectangle2D.Double>? = null
+
     /** Cells from the *outgoing* layout, painted with fading alpha during drill. */
     private var drillGhostCells: List<Pair<Rectangle2D.Double, StatGroup>> = emptyList()
+
     /** Single highlight ghost (the parent cell during drill-in, or the collapsing-target during drill-out). */
     private var drillGhostFocusRect: Rectangle2D.Double? = null
     private var drillGhostFocusGroup: StatGroup? = null
@@ -124,7 +133,6 @@ class TreemapPanel : JPanel() {
                 clearHoverPreview()
             }
         })
-        toolTipText = "" // enable tooltips
     }
 
     /** Enable single-click drill-down (with hand cursor) for drillable cells. */
@@ -387,17 +395,7 @@ class TreemapPanel : JPanel() {
     private fun hitTest(p: Point): StatGroup? =
         rects.firstOrNull { it.first.contains(p.x.toDouble(), p.y.toDouble()) }?.second
 
-    override fun getToolTipText(event: MouseEvent): String? {
-        val hit = hitTest(event.point) ?: return null
-        val v = hit.value(metric)
-        val suffix = if (hit.children.isNotEmpty()) {
-            if (singleClickDrill) "  (click to drill in)" else "  (double-click to drill in)"
-        } else ""
-        return "<html><b>${escape(hit.key)}</b><br/>" +
-                "${metric.display}: ${format(metric, v)}<br/>" +
-                "Files: ${hit.fileCount}, Total LOC: ${hit.totalLines}, Size: ${humanBytes(hit.sizeBytes)}" +
-                "$suffix</html>"
-    }
+
 
     override fun paintComponent(g: Graphics) {
         super.paintComponent(g)
@@ -435,13 +433,22 @@ class TreemapPanel : JPanel() {
                 val fromMap = if (animating && animKind == AnimKind.METRIC) animFromRects else null
                 for ((rect, grp) in rects) {
                     val displayRect = interpolateRect(fromMap?.get(grp.key), rect, t)
-                    paintCell(g2, displayRect, grp, fillAlpha = 1f, drawLabel = true)
+                    paintCell(g2, displayRect, grp, fillAlpha = 1f, drawLabel = false)
                 }
             }
         }
 
         // Hover preview — only when not in the middle of an animation.
         if (!animating) paintHoverPreview(g2)
+
+        // Paint labels on top of everything (including hover preview) so they're always visible.
+        if (!animating) {
+            val fromMap = if (animating && animKind == AnimKind.METRIC) animFromRects else null
+            for ((rect, grp) in rects) {
+                val displayRect = interpolateRect(fromMap?.get(grp.key), rect, t)
+                drawCellLabel(g2, displayRect, grp, colorFor(grp))
+            }
+        }
 
         // In-treemap breadcrumb (double-click modes only — directory mode shows a toolbar breadcrumb).
         if (drillStack.isNotEmpty() && !singleClickDrill) {
@@ -725,6 +732,7 @@ fun format(metric: Metric, value: Long): String = when (metric) {
     Metric.SIZE -> humanBytes(value)
     Metric.LOC, Metric.NON_BLANK_LOC, Metric.CODE_LOC,
     Metric.COVERED_LOC, Metric.UNCOVERED_LOC -> "%,d lines".format(value)
+
     Metric.COMPLEXITY -> "%,d".format(value)
     Metric.FILE_COUNT -> "%,d files".format(value)
     Metric.COMMIT_COUNT -> "%,d commits".format(value)
