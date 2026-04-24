@@ -10,20 +10,20 @@ import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.AnimatedIcon
 import com.intellij.ui.JBColor
 import com.intellij.ui.OnePixelSplitter
+import com.intellij.ui.components.breadcrumbs.Breadcrumbs
+import com.intellij.ui.components.breadcrumbs.Crumb
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
 import java.awt.*
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
-import java.util.*
 import javax.swing.*
 import javax.swing.event.ChangeEvent
 import javax.swing.table.AbstractTableModel
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.TableRowSorter
+import java.util.*
 
 class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
 
@@ -55,9 +55,20 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val kpiLoc = kpiLabel()
     private val kpiSize = kpiLabel()
     private val kpiScan = kpiLabel()
-    private val breadcrumbRow = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+
+    // Maps each crumb to the drill depth it should navigate to (0 = project root).
+    private val crumbTargets = IdentityHashMap<Crumb, Int>()
+    private val breadcrumbs = Breadcrumbs().apply {
+        isVisible = false
+        onSelect { crumb, _ ->
+            crumbTargets[crumb]?.let { treemap.popToDepth(it) }
+        }
+    }
+    private val breadcrumbRow = JPanel(BorderLayout()).apply {
         border = JBUI.Borders.emptyTop(2)
         isVisible = false
+        add(JLabel("Path: ").apply { border = JBUI.Borders.emptyRight(4) }, BorderLayout.WEST)
+        add(breadcrumbs, BorderLayout.CENTER)
     }
 
     private val treemap = TreemapPanel()
@@ -383,39 +394,34 @@ class ProjectStatsPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     private fun updateBreadcrumbs() {
-        breadcrumbRow.removeAll()
+        breadcrumbRow.isVisible = false
         val isDir = (groupByBox.selectedItem as? GroupBy) == GroupBy.DIRECTORY
-        if (!isDir) {
-            breadcrumbRow.isVisible = false
-            breadcrumbRow.revalidate()
-            breadcrumbRow.repaint()
-            return
-        }
+        if (!isDir) return
         breadcrumbRow.isVisible = true
-        breadcrumbRow.add(JLabel("Path:"))
-        breadcrumbRow.add(crumbLabel("<project>", 0))
+
+        crumbTargets.clear()
+        val crumbs = ArrayList<Crumb>(treemap.drillDepth() + 1)
+
+        // Root crumb
+        val root = object : Crumb {
+            override fun getText() = "<project>"
+            override fun getIcon() = null
+        }
+        crumbTargets[root] = 0
+        crumbs.add(root)
+
+        // Drill step crumbs
         val depth = treemap.drillDepth()
         for (i in 0 until depth) {
-            breadcrumbRow.add(JLabel("/"))
-            breadcrumbRow.add(crumbLabel(treemap.drillStepDisplay(i), i + 1))
+            val crumb = object : Crumb {
+                override fun getText() = treemap.drillStepDisplay(i)
+                override fun getIcon() = null
+            }
+            crumbTargets[crumb] = i + 1
+            crumbs.add(crumb)
         }
-        breadcrumbRow.revalidate()
-        breadcrumbRow.repaint()
-    }
 
-    private fun crumbLabel(text: String, targetDepth: Int): JLabel {
-        val isCurrent = targetDepth == treemap.drillDepth()
-        val label = JLabel(if (isCurrent) "<html><b>$text</b></html>" else "<html><a href=''>$text</a></html>")
-        if (!isCurrent) {
-            label.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            label.toolTipText = "Go to $text"
-            label.addMouseListener(object : MouseAdapter() {
-                override fun mouseClicked(e: MouseEvent) {
-                    treemap.popToDepth(targetDepth)
-                }
-            })
-        }
-        return label
+        breadcrumbs.setCrumbs(crumbs)
     }
 
     private fun showCoverageReportsDialog() {
