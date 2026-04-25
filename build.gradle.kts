@@ -85,6 +85,10 @@ val unitTest = tasks.register<Test>("unitTest") {
     finalizedBy(tasks.jacocoTestReport)
 }
 
+tasks.test {
+    failOnNoDiscoveredTests = false
+}
+
 tasks.check {
     dependsOn(unitTest)
 }
